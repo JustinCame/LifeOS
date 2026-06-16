@@ -68,6 +68,11 @@ export default function Macros() {
   const [exportOpen, setExportOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
+  // Default to "remaining" — answers the more useful question mid-day
+  // ("how much can I still eat?"). Tap any of the values to flip to "eaten".
+  const [viewMode, setViewMode] = useState<"remaining" | "eaten">("remaining");
+  const toggleView = () =>
+    setViewMode((m) => (m === "remaining" ? "eaten" : "remaining"));
 
   const foodCount = useLiveQuery(() => db.foods.count()) ?? 0;
 
@@ -87,9 +92,11 @@ export default function Macros() {
             </button>
           </div>
           <div className="mt-1.5 flex items-center gap-2 font-mono text-xs tracking-[0.02em] text-muted">
-            <span>
-              {Math.round(totals.calories)} / {goals.calories} kcal
-            </span>
+            <button onClick={toggleView} className="text-muted hover:text-fg">
+              {viewMode === "remaining"
+                ? `${formatRemaining(goals.calories - totals.calories)} kcal left`
+                : `${Math.round(totals.calories)} / ${goals.calories} kcal`}
+            </button>
             <span>·</span>
             <button
               onClick={() => setEditGoals((v) => !v)}
@@ -128,19 +135,51 @@ export default function Macros() {
         ) : (
           <Card>
             <div className="grid grid-cols-3 gap-3 px-3.5 py-3.5">
-              <MacroBar label="Carbs" value={totals.carbs} goal={goals.carbs} />
-              <MacroBar label="Protein" value={totals.protein} goal={goals.protein} />
-              <MacroBar label="Fat" value={totals.fat} goal={goals.fat} />
+              <MacroBar
+                label="Carbs"
+                value={totals.carbs}
+                goal={goals.carbs}
+                mode={viewMode}
+                onToggle={toggleView}
+              />
+              <MacroBar
+                label="Protein"
+                value={totals.protein}
+                goal={goals.protein}
+                mode={viewMode}
+                onToggle={toggleView}
+              />
+              <MacroBar
+                label="Fat"
+                value={totals.fat}
+                goal={goals.fat}
+                mode={viewMode}
+                onToggle={toggleView}
+              />
             </div>
-            <div className="border-t border-border px-3.5 py-2.5">
+            <button
+              onClick={toggleView}
+              className="block w-full border-t border-border px-3.5 py-2.5 text-left hover:bg-surface-2"
+            >
               <div className="font-mono text-xs uppercase tracking-[0.04em] text-muted">
                 calories
               </div>
               <div className="mt-1 font-mono text-base">
-                {Math.round(totals.calories)}
-                <span className="ml-1 text-xs text-subtle">
-                  / {goals.calories}
-                </span>
+                {viewMode === "remaining" ? (
+                  <>
+                    {formatRemaining(goals.calories - totals.calories)}
+                    <span className="ml-1 text-xs text-subtle">
+                      {goals.calories - totals.calories < 0 ? "over" : "left"}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {Math.round(totals.calories)}
+                    <span className="ml-1 text-xs text-subtle">
+                      / {goals.calories}
+                    </span>
+                  </>
+                )}
               </div>
               <div className="mt-1.5 h-0.5 overflow-hidden rounded-[1px] bg-surface-2">
                 <span
@@ -150,7 +189,7 @@ export default function Macros() {
                   }}
                 />
               </div>
-            </div>
+            </button>
           </Card>
         )}
 
@@ -282,15 +321,41 @@ function formatDateNumeric(ts: number): string {
 
 /* -------------------- Sub-components -------------------- */
 
-function MacroBar({ label, value, goal }: { label: string; value: number; goal: number }) {
+function MacroBar({
+  label,
+  value,
+  goal,
+  mode,
+  onToggle,
+}: {
+  label: string;
+  value: number;
+  goal: number;
+  mode: "remaining" | "eaten";
+  onToggle: () => void;
+}) {
   const pct = goal > 0 ? Math.min(100, (value / goal) * 100) : 0;
+  const remaining = goal - value;
+  const over = remaining < 0;
   return (
-    <div className="min-w-0">
+    <button onClick={onToggle} className="min-w-0 text-left">
       <div className="text-xs uppercase tracking-[0.04em] text-muted">{label}</div>
       <div className="mt-1 font-mono text-[15px] tracking-[-0.01em]">
-        {Math.round(value)}
-        <span className="text-xs text-muted">g</span>
-        <span className="ml-1 text-xs text-subtle"> / {goal}g</span>
+        {mode === "remaining" ? (
+          <>
+            {formatRemaining(remaining)}
+            <span className="text-xs text-muted">g</span>
+            <span className="ml-1 text-xs text-subtle">
+              {over ? "over" : "left"}
+            </span>
+          </>
+        ) : (
+          <>
+            {Math.round(value)}
+            <span className="text-xs text-muted">g</span>
+            <span className="ml-1 text-xs text-subtle"> / {goal}g</span>
+          </>
+        )}
       </div>
       <div className="mt-1.5 h-0.5 overflow-hidden rounded-[1px] bg-surface-2">
         <span
@@ -298,8 +363,14 @@ function MacroBar({ label, value, goal }: { label: string; value: number; goal: 
           style={{ width: `${pct}%` }}
         />
       </div>
-    </div>
+    </button>
   );
+}
+
+// "+200" when over goal, "1200" when under. Always returns a positive
+// magnitude string; the label ("left" / "over") provides the sign.
+function formatRemaining(n: number): string {
+  return Math.round(Math.abs(n)).toString();
 }
 
 function GoalsEditor({
