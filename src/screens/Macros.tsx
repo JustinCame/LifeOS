@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Card, Section } from "../components/primitives";
 import FoodPickerSheet from "../components/FoodPickerSheet";
 import FoodLibrarySheet from "../components/FoodLibrarySheet";
+import RecipeLibrarySheet from "../components/RecipeLibrarySheet";
 import MealEntryEditSheet from "../components/MealEntryEditSheet";
 import ExportSheet from "../components/ExportSheet";
 import { exportMacrosText } from "../lib/exports";
@@ -67,6 +68,7 @@ export default function Macros() {
   const [editGoals, setEditGoals] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [recipesOpen, setRecipesOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
   // Default to "remaining" — answers the more useful question mid-day
   // ("how much can I still eat?"). Tap any of the values to flip to "eaten".
@@ -75,6 +77,7 @@ export default function Macros() {
     setViewMode((m) => (m === "remaining" ? "eaten" : "remaining"));
 
   const foodCount = useLiveQuery(() => db.foods.count()) ?? 0;
+  const recipeCount = useLiveQuery(() => db.recipes.count()) ?? 0;
 
   return (
     <div className="relative flex h-full flex-col bg-bg">
@@ -270,6 +273,27 @@ export default function Macros() {
             </button>
           </Card>
         </Section>
+
+        <Section title="Recipes" meta={recipeCount > 0 ? `${recipeCount}` : ""}>
+          <Card>
+            <button
+              onClick={() => setRecipesOpen(true)}
+              className="flex w-full items-center gap-3 px-3.5 py-3 text-left hover:bg-surface-2"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-base leading-tight text-fg">
+                  Browse recipes
+                </div>
+                <div className="mt-0.5 font-mono text-[11px] text-muted">
+                  {recipeCount === 0
+                    ? "No recipes yet — build one from foods in your library."
+                    : `${recipeCount} ${recipeCount === 1 ? "recipe" : "recipes"} · tap any to edit or log to a meal`}
+                </div>
+              </div>
+              <span className="text-subtle">›</span>
+            </button>
+          </Card>
+        </Section>
       </div>
 
       {pickerMeal !== null && (
@@ -290,6 +314,13 @@ export default function Macros() {
 
       {libraryOpen && (
         <FoodLibrarySheet onClose={() => setLibraryOpen(false)} />
+      )}
+
+      {recipesOpen && (
+        <RecipeLibrarySheet
+          logDate={selectedDay}
+          onClose={() => setRecipesOpen(false)}
+        />
       )}
 
       {editingEntry && (

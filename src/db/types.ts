@@ -166,16 +166,46 @@ export interface Food {
 // A logged food entry on a specific day + meal slot. Macros are denormalized
 // (snapshotted at log time) so editing or deleting the source food doesn't
 // rewrite history.
+//
+// Either foodId or recipeId is set — foodId for entries sourced from the
+// food library (the common case), recipeId when the user logs a whole recipe
+// as a single entry. foodName holds the display name in both cases.
 export interface MealEntry {
   id?: number
   date: number // start-of-day timestamp
   type: 'breakfast' | 'lunch' | 'dinner' | 'snack'
-  foodId: number
+  foodId?: number
+  recipeId?: number
   foodName: string
   servings: number
   macros: Macros // already scaled by servings
   notes?: string
   createdAt: number
+}
+
+// One ingredient inside a recipe. Snapshots foodName + per-serving macros so
+// editing or deleting the source food later doesn't retroactively change what
+// the recipe totals. `servings` is how many servings of that food the recipe
+// calls for (e.g., "2 eggs" = 2 servings of the "1 egg" food).
+export interface RecipeIngredient {
+  foodId: number
+  foodName: string
+  servings: number
+  macrosPerServing: Macros // snapshot at add time
+}
+
+// A user-defined recipe = a bundle of ingredients that can be logged as one
+// meal entry. `yields` is the number of servings the whole recipe makes so a
+// user cooking a 4-serving pot of chili can log 1 serving at a time later.
+export interface Recipe {
+  id?: number
+  name: string
+  ingredients: RecipeIngredient[]
+  yields: number // how many servings the whole recipe makes; must be > 0
+  notes?: string
+  createdAt: number
+  lastUsedAt?: number
+  useCount: number
 }
 
 export interface Transaction {

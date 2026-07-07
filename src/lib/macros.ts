@@ -1,5 +1,11 @@
 import { db, getSetting, setSetting } from '../db'
-import type { Food, Macros, MealEntry } from '../db/types'
+import type {
+  Food,
+  Macros,
+  MealEntry,
+  Recipe,
+  RecipeIngredient,
+} from '../db/types'
 import { startOfToday } from './health'
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
@@ -133,4 +139,88 @@ export async function findFoodByBarcode(
   barcode: string,
 ): Promise<Food | undefined> {
   return db.foods.where('barcode').equals(barcode).first()
+}
+
+/* -------------------- Recipes -------------------- */
+
+export type NewRecipe = Omit<
+  Recipe,
+  'id' | 'createdAt' | 'useCount' | 'lastUsedAt'
+>
+
+// Total macros for the whole recipe (before dividing by yields). Uses each
+// ingredient's snapshotted per-serving macros so edits to the source food
+// after the ingredient was added don't retroactively shift the total.
+export function totalRecipeMacros(recipe: Recipe | NewRecipe): Macros {
+  const t = { ...ZERO_MACROS }
+  for (const ing of recipe.ingredients) {
+    t.calories += ing.macrosPerServing.calories * ing.servings
+    t.protein += ing.macrosPerServing.protein * ing.servings
+    t.carbs += ing.macrosPerServing.carbs * ing.servings
+    t.fat += ing.macrosPerServing.fat * ing.servings
+  }
+  return t
+}
+
+// Macros for ONE serving of the recipe — the unit shown at log time.
+export function perServingRecipeMacros(recipe: Recipe | NewRecipe): Macros {
+  const yields = recipe.yields > 0 ? recipe.yields : 1
+  return scaleMacros(totalRecipeMacros(recipe), 1 / yields)
+}
+
+// Build a fresh ingredient from a food. Snapshots foodName + per-serving
+// macros so later edits to the food don't change what the recipe totals.
+export function ingredientFromFood(
+  food: Food,
+  servings: number,
+): RecipeIngredient {
+  return {
+    foodId: food.id!,
+    foodName: food.name,
+    servings,
+    macrosPerServing: { ...food.macros },
+  }
+}
+
+export async function addRecipe(recipe: NewRecipe): Promise<Recipe> {
+  const createdAt = Date.now()
+  const id = await db.recipes.add({ ...recipe, createdAt, useCount: 0 })
+  return { ...recipe, id: id as number, createdAt, useCount: 0 }
+}
+
+export async function updateRecipe(
+  id: number,
+  updates: NewRecipe,
+): Promise<void> {
+  await db.recipes.update(id, updates)
+}
+
+export async function deleteRecipe(id: number): Promise<void> {
+  await db.recipes.delete(id)
+}
+
+// Log a recipe as a single meal entry. `servings` is how many servings of the
+// recipe (not the whole thing) the user is eating — so half of a 4-serving
+// pot is `servings: 1`, i.e. 1/4 of the totalRecipeMacros.
+export async function logRecipeToMeal(
+  recipe: Recipe,
+  type: MealType,
+  servings: number,
+  date: number = startOfToday(),
+): Promise<void> {
+  if (servings <= 0) throw new Error('servings must be > 0')
+  const perServing = perServingRecipeMacros(recipe)
+  await db.meal_entries.add({
+    date,
+    type,
+    recipeId: recipe.id!,
+    foodName: recipe.name,
+    servings,
+    macros: scaleMacros(perServing, servings),
+    createdAt: Date.now(),
+  })
+  await db.recipes.update(recipe.id!, {
+    lastUsedAt: Date.now(),
+    useCount: (recipe.useCount ?? 0) + 1,
+  })
 }

@@ -249,6 +249,7 @@ export default function BackupSheet({ onClose }: Props) {
 function summarizeCounts(c: Record<string, number>): string {
   const parts: string[] = [];
   if (c.foods) parts.push(`${c.foods} foods`);
+  if (c.recipes) parts.push(`${c.recipes} recipes`);
   if (c.meal_entries) parts.push(`${c.meal_entries} meal entries`);
   if (c.tasks) parts.push(`${c.tasks} tasks`);
   if (c.habits) parts.push(`${c.habits} habits`);
