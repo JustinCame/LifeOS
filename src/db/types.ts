@@ -248,6 +248,10 @@ export interface Habit {
   longestStreak: number
   createdAt: number
   archivedAt?: number
+  // Optional single glyph shown inside the small ring on the Today screen so
+  // habits are distinguishable at a glance. Falls back to a completion
+  // checkmark when unset and the habit is done.
+  emoji?: string
 }
 
 // One entry per habit per day — replaces the old `history: number[]` array on

@@ -117,18 +117,31 @@ function SmallRing({
           strokeDasharray={dashArray}
         />
       </svg>
-      {p >= 1 && (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path
-              d="M2 5.5 L4 7.5 L8 3"
-              stroke="var(--color-accent-fg)"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+      {habit.emoji ? (
+        // The emoji stays put whether the ring is empty or full — the
+        // filling ring around it is the completion signal.
+        <div
+          className="pointer-events-none absolute inset-0 grid place-items-center"
+          style={{ fontSize: 15, lineHeight: 1 }}
+        >
+          <span>{habit.emoji}</span>
         </div>
+      ) : (
+        // No emoji: keep the old checkmark on completion so unlabeled habits
+        // still have a visible "done" state.
+        p >= 1 && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path
+                d="M2 5.5 L4 7.5 L8 3"
+                stroke="var(--color-accent-fg)"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        )
       )}
     </div>
   );

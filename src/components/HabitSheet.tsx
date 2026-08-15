@@ -29,6 +29,7 @@ export default function HabitSheet({ habit, onClose }: Props) {
   const editing = !!habit;
 
   const [name, setName] = useState(habit?.name ?? "");
+  const [emoji, setEmoji] = useState(habit?.emoji ?? "");
   const [kind, setKind] = useState<HabitKind>(habit?.kind ?? "binary");
   const [target, setTarget] = useState(
     habit?.target !== undefined ? String(habit.target) : "",
@@ -80,6 +81,9 @@ export default function HabitSheet({ habit, onClose }: Props) {
       schedule,
       ...(needsTarget ? { target: parsedTarget } : { target: undefined }),
       ...(needsTarget && unit.trim() ? { unit: unit.trim() } : { unit: undefined }),
+      // Trim + strip zero-width joiners aren't necessary — Dexie stores the
+      // raw string; empty stays empty via undefined.
+      emoji: emoji.trim() || undefined,
     };
     if (editing && habit) {
       await updateHabit(habit.id!, payload);
@@ -120,13 +124,35 @@ export default function HabitSheet({ habit, onClose }: Props) {
           onSubmit={save}
           className="flex-1 space-y-4 overflow-y-auto px-[18px] pb-6 pt-2 [&::-webkit-scrollbar]:hidden"
         >
-          <Field
-            label="Name"
-            value={name}
-            onChange={setName}
-            placeholder="Read before bed"
-            autoFocus
-          />
+          <div className="flex gap-2">
+            <div className="min-w-0 flex-1">
+              <Field
+                label="Name"
+                value={name}
+                onChange={setName}
+                placeholder="Read before bed"
+                autoFocus
+              />
+            </div>
+            <div className="w-20 flex-shrink-0">
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-[0.06em] text-muted">
+                  Emoji
+                </span>
+                <input
+                  type="text"
+                  value={emoji}
+                  maxLength={8}
+                  onChange={(e) => setEmoji(e.target.value)}
+                  placeholder="📖"
+                  className="w-full rounded-[10px] border border-border bg-surface px-3 py-2 text-center text-lg outline-none placeholder:text-subtle"
+                />
+              </label>
+            </div>
+          </div>
+          <p className="-mt-2 text-[11px] text-muted">
+            Optional — shown inside the small ring on the Today screen.
+          </p>
 
           <div>
             <div className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted">
