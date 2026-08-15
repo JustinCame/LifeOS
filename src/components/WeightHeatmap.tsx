@@ -251,21 +251,22 @@ export default function WeightHeatmap({ logs }: { logs: HealthLog[] }) {
             >
               {isLogged ? (
                 <>
-                  {/* Day number: tiny in the top-right so the weight can be
-                      the primary readout without losing which day is which. */}
+                  {/* Weight tucked in the corner as an annotation; day number
+                      stays the primary readout so the grid reads like a normal
+                      calendar first. */}
                   <span
                     className={`absolute right-[3px] top-[2px] font-mono text-[8px] leading-none opacity-70 ${
                       dayTextDark ? "text-[#0a160d]" : "text-fg"
                     }`}
                   >
-                    {cell.day}
+                    {Math.round(cell.weight!)}
                   </span>
                   <span
-                    className={`font-mono text-[11px] font-medium leading-none ${
+                    className={`font-mono text-xs ${
                       dayTextDark ? "text-[#0a160d]" : "text-fg"
                     }`}
                   >
-                    {Math.round(cell.weight!)}
+                    {cell.day}
                   </span>
                 </>
               ) : (
