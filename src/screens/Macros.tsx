@@ -5,6 +5,7 @@ import FoodPickerSheet from "../components/FoodPickerSheet";
 import FoodLibrarySheet from "../components/FoodLibrarySheet";
 import RecipeLibrarySheet from "../components/RecipeLibrarySheet";
 import MealEntryEditSheet from "../components/MealEntryEditSheet";
+import QuickAddSheet from "../components/QuickAddSheet";
 import ExportSheet from "../components/ExportSheet";
 import { exportMacrosText } from "../lib/exports";
 import { db } from "../db";
@@ -69,6 +70,7 @@ export default function Macros() {
   const [exportOpen, setExportOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [recipesOpen, setRecipesOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
   // Default to "remaining" — answers the more useful question mid-day
   // ("how much can I still eat?"). Tap any of the values to flip to "eaten".
@@ -294,6 +296,25 @@ export default function Macros() {
             </button>
           </Card>
         </Section>
+
+        <Section title="Quick add">
+          <Card>
+            <button
+              onClick={() => setQuickAddOpen(true)}
+              className="flex w-full items-center gap-3 px-3.5 py-3 text-left hover:bg-surface-2"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-base leading-tight text-fg">
+                  Log macros without saving
+                </div>
+                <div className="mt-0.5 font-mono text-[11px] text-muted">
+                  For random one-off items you won't have again.
+                </div>
+              </div>
+              <span className="text-subtle">›</span>
+            </button>
+          </Card>
+        </Section>
       </div>
 
       {pickerMeal !== null && (
@@ -320,6 +341,13 @@ export default function Macros() {
         <RecipeLibrarySheet
           logDate={selectedDay}
           onClose={() => setRecipesOpen(false)}
+        />
+      )}
+
+      {quickAddOpen && (
+        <QuickAddSheet
+          date={selectedDay}
+          onClose={() => setQuickAddOpen(false)}
         />
       )}
 

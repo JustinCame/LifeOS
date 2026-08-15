@@ -93,6 +93,25 @@ export async function deleteMealEntry(id: number): Promise<void> {
   await db.meal_entries.delete(id)
 }
 
+// One-off "quick add" entry — for random items the user doesn't want to save
+// to the library (a cookie from a coffee shop, a bite of a friend's dessert).
+// No foodId, no recipeId; label defaults to "Quick add" when blank.
+export async function addQuickMealEntry(
+  type: MealType,
+  macros: Macros,
+  label: string | undefined,
+  date: number = startOfToday(),
+): Promise<void> {
+  await db.meal_entries.add({
+    date,
+    type,
+    foodName: label?.trim() || 'Quick add',
+    servings: 1,
+    macros,
+    createdAt: Date.now(),
+  })
+}
+
 // Change the servings on a logged meal entry. Macros are rescaled from the
 // entry's *original* per-serving snapshot so past entries stay predictable —
 // editing the source food later doesn't retroactively alter logged macros.
