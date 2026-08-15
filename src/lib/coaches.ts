@@ -180,14 +180,19 @@ async function buildHomePrompt(): Promise<string> {
     }
   }
 
-  // Habits
-  const habits = await db.habits.toArray()
+  // Habits — only active (not archived). Today's status is derived from
+  // habit_entries rather than the old h.history array.
+  const habits = (await db.habits.toArray()).filter((h) => !h.archivedAt)
   let habitsBlock = '## Habits today\n'
   if (habits.length === 0) {
     habitsBlock += '(none)\n'
   } else {
     for (const h of habits) {
-      const doneToday = h.history.some((t) => t >= today)
+      const entry = await db.habit_entries
+        .where('[habitId+date]')
+        .equals([h.id!, today])
+        .first()
+      const doneToday = entry ? entry.value >= (entry.target || 1) : false
       habitsBlock += `- ${h.name}: ${doneToday ? '✓ done today' : 'pending'} (streak ${h.streak}d)\n`
     }
   }

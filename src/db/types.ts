@@ -221,16 +221,45 @@ export interface Transaction {
   createdAt: number
 }
 
+// Habit kinds:
+//   binary   — done / not done (default; brushed teeth)
+//   count    — accumulate toward a target (pages read)
+//   duration — accumulate time toward a target (minutes meditated)
+//   avoid    — the goal is to keep a "0" (no soda). "No entry" counts as kept.
+export type HabitKind = 'binary' | 'count' | 'duration' | 'avoid'
+
+// Scheduling modes:
+//   daily     — every day is a scheduled day
+//   weekdays  — only specific weekdays (0=Sun … 6=Sat)
+//   perWeek   — hit N times per ISO week, any days
+export type HabitSchedule =
+  | { mode: 'daily' }
+  | { mode: 'weekdays'; days: number[] }
+  | { mode: 'perWeek'; perWeek: number }
+
 export interface Habit {
   id?: number
   name: string
-  frequency: 'daily' | 'weekly' | 'custom'
-  customDays?: number[]
+  kind: HabitKind
+  target?: number // count / duration only
+  unit?: string   // 'pages', 'min', … count / duration only
+  schedule: HabitSchedule
   streak: number
   longestStreak: number
-  lastCompleted?: number
-  history: number[]
-  archived?: boolean
+  createdAt: number
+  archivedAt?: number
+}
+
+// One entry per habit per day — replaces the old `history: number[]` array on
+// Habit so we can express partial progress. Target is snapshotted at log time
+// so a raised bar tomorrow doesn't retroactively demote yesterday's success.
+export interface HabitEntry {
+  id?: number
+  habitId: number
+  date: number  // startOfDay ms
+  value: number // count / duration: amount. binary / avoid: 0 or 1
+  target: number
+  note?: string
   createdAt: number
 }
 

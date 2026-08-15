@@ -184,17 +184,34 @@ export async function buildWeeklyReviewUserMessage(): Promise<string> {
     healthBlock += `- Daily breakdown:\n${dailyDetails.join('\n')}\n`
   }
 
-  /* Habits */
-  const habits = await db.habits.toArray()
+  /* Habits — pull the trailing week's entries per habit rather than the old
+     history[] field. Denominator is 7 for daily/perWeek, or the count of
+     scheduled days that actually fell in the window for weekdays. */
+  const habits = (await db.habits.toArray()).filter((h) => !h.archivedAt)
   let habitsBlock = '## Habits\n'
   if (habits.length === 0) {
     habitsBlock += '(no habits set up)\n'
   } else {
     for (const h of habits) {
-      const completionsThisWeek = h.history.filter(
-        (ts) => ts >= weekAgo && ts < today + dayMs,
+      const weekEntries = await db.habit_entries
+        .where('habitId')
+        .equals(h.id!)
+        .and((e) => e.date >= weekAgo && e.date < today + dayMs)
+        .toArray()
+      const hits = weekEntries.filter(
+        (e) => e.value >= (e.target || 1),
       ).length
-      habitsBlock += `- ${h.name}: ${completionsThisWeek}/7 this week, current streak ${h.streak}d (longest ${h.longestStreak}d)\n`
+      let denom = 7
+      if (h.schedule?.mode === 'weekdays') {
+        denom = 0
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(weekAgo + i * dayMs).getDay()
+          if (h.schedule.days.includes(d)) denom++
+        }
+      } else if (h.schedule?.mode === 'perWeek') {
+        denom = h.schedule.perWeek
+      }
+      habitsBlock += `- ${h.name}: ${hits}/${denom} this week, current streak ${h.streak}d (longest ${h.longestStreak}d)\n`
     }
   }
 

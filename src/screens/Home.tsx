@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Card, Section, ListRow, IconButton, Input } from "../components/primitives";
 import { db } from "../db";
-import type { Habit, Task } from "../db/types";
+import type { Task } from "../db/types";
 import { listTomorrow, formatEventTime, type CalEvent } from "../lib/calendar";
 import {
   METRIC_CONFIG,
@@ -97,52 +97,8 @@ export default function Home({ onOpenMetric, onOpenBackup }: HomeProps) {
   };
   const deleteTask = (id: number) => db.tasks.delete(id);
 
-  // --- Habits (Dexie) ---
-  const habits =
-    useLiveQuery(() => db.habits.orderBy("createdAt").toArray()) ?? [];
-  const [habitDraft, setHabitDraft] = useState("");
-
-  const addHabit = async () => {
-    const name = habitDraft.trim();
-    if (!name) return;
-    await db.habits.add({
-      name,
-      frequency: "daily",
-      streak: 0,
-      longestStreak: 0,
-      history: [],
-      createdAt: Date.now(),
-    });
-    setHabitDraft("");
-  };
-  const toggleHabitToday = async (h: Habit) => {
-    const todayStart = startOfToday();
-    const yesterdayStart = todayStart - 86_400_000;
-    const doneToday = h.history.some((t) => t >= todayStart);
-
-    if (doneToday) {
-      const newHistory = h.history.filter((t) => t < todayStart);
-      const lastCompleted = newHistory.length ? Math.max(...newHistory) : undefined;
-      await db.habits.update(h.id!, {
-        history: newHistory,
-        streak: Math.max(0, h.streak - 1),
-        lastCompleted,
-      });
-    } else {
-      const completedYesterday = h.history.some(
-        (t) => t >= yesterdayStart && t < todayStart,
-      );
-      const newStreak = completedYesterday ? h.streak + 1 : 1;
-      const now = Date.now();
-      await db.habits.update(h.id!, {
-        history: [...h.history, now],
-        lastCompleted: now,
-        streak: newStreak,
-        longestStreak: Math.max(h.longestStreak, newStreak),
-      });
-    }
-  };
-  const deleteHabit = (id: number) => db.habits.delete(id);
+  // Habits have moved off this screen into their own tab; the ring-row
+  // replacement lands in a follow-up step of the habits redesign.
 
   // --- Header copy ---
   const today = new Date();
@@ -164,7 +120,6 @@ export default function Home({ onOpenMetric, onOpenBackup }: HomeProps) {
     `${schedule.length} ${schedule.length === 1 ? "event" : "events"}`;
 
   const tasksLeft = tasks.filter((t) => t.status !== "completed").length;
-  const habitsDoneToday = habits.filter((h) => isDoneToday(h)).length;
 
   return (
     <div className="relative flex h-full flex-col bg-bg">
@@ -264,63 +219,9 @@ export default function Home({ onOpenMetric, onOpenBackup }: HomeProps) {
           </Card>
         </Section>
 
-        {/* Habits */}
-        <Section title="Habits" meta={`${habitsDoneToday}/${habits.length} today`}>
-          <Card>
-            {habits.map((h) => {
-              const done = isDoneToday(h);
-              const dots = getHistoryDots(h, 7);
-              return (
-                <div key={h.id} className="group flex items-center gap-3 border-t border-border px-3.5 py-3 first:border-t-0">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <div className="text-base leading-tight">{h.name}</div>
-                      <span className={`flex items-center gap-1.5 font-mono text-xs ${h.streak >= 7 ? "text-accent-fg" : "text-muted"}`}>
-                        {h.streak}d
-                      </span>
-                    </div>
-                    <div className="mt-1.5 flex gap-1">
-                      {dots.map((f, i) => (
-                        <span
-                          key={i}
-                          className={`h-1.5 w-1.5 rounded-full ${f ? "bg-accent" : "bg-surface-2"} ${
-                            i === dots.length - 1
-                              ? "shadow-[0_0_0_1.5px_var(--color-accent-soft),0_0_0_2.5px_var(--color-bg)]"
-                              : ""
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => toggleHabitToday(h)}
-                    className={`grid h-8 w-8 place-items-center rounded-full border-[1.5px] transition ${
-                      done
-                        ? "border-accent bg-accent text-white"
-                        : "border-border-strong text-subtle"
-                    }`}
-                  >
-                    {done ? <CheckIcon /> : <PlusIcon />}
-                  </button>
-                  <IconButton label="Delete habit" onClick={() => deleteHabit(h.id!)} className="opacity-50">
-                    <XIcon />
-                  </IconButton>
-                </div>
-              );
-            })}
-            <Input
-              value={habitDraft}
-              onChange={setHabitDraft}
-              onSubmit={addHabit}
-              placeholder="Add a habit"
-              leading={
-                <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-[6px] border-[1.5px] border-dashed border-border-strong text-subtle">
-                  <PlusIcon />
-                </span>
-              }
-            />
-          </Card>
-        </Section>
+        {/* Habits — placeholder while the new HabitRingRow lands in a
+            follow-up step of the redesign. Full-featured Habits tab replaces
+            the old Goals tab in the next step. */}
 
         {/* Stats */}
         <Section title="Today's stats">
@@ -345,7 +246,7 @@ export default function Home({ onOpenMetric, onOpenBackup }: HomeProps) {
         </Section>
 
         <div className="py-3 text-center font-mono text-[11px] tracking-[0.04em] text-subtle">
-          {tasks.length} tasks · {habits.length} habits
+          {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
         </div>
       </div>
 
@@ -676,22 +577,6 @@ function StatTile({ metric, onClick }: { metric: DailyMetricType; onClick: () =>
   );
 }
 
-function isDoneToday(h: Habit): boolean {
-  const t = startOfToday();
-  return h.history.some((ts) => ts >= t);
-}
-function getHistoryDots(h: Habit, days: number): boolean[] {
-  const dots: boolean[] = [];
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  const today = d.getTime();
-  for (let i = days - 1; i >= 0; i--) {
-    const start = today - i * 86_400_000;
-    const end = start + 86_400_000;
-    dots.push(h.history.some((ts) => ts >= start && ts < end));
-  }
-  return dots;
-}
 
 const CheckIcon = () => (
   <svg width="13" height="13" viewBox="0 0 13 13" fill="none">

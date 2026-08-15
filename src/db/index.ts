@@ -6,6 +6,8 @@ import type {
   Meal,
   Transaction,
   Habit,
+  HabitEntry,
+  HabitSchedule,
   Goal,
   HealthLog,
   ChatMessage,
@@ -39,6 +41,7 @@ class LifeOSDB extends Dexie {
   cardio_sessions!: Table<CardioSession, number>
   notes!: Table<Note, number>
   recipes!: Table<Recipe, number>
+  habit_entries!: Table<HabitEntry, number>
 
   constructor() {
     super('LifeOS')
@@ -229,6 +232,92 @@ class LifeOSDB extends Dexie {
       // new — user recipes: bundles of foods that log as a single meal entry
       recipes: '++id, name, lastUsedAt, useCount, createdAt',
     })
+
+    this.version(10)
+      .stores({
+        settings: '&key, updatedAt',
+        tasks:
+          '++id, status, dueDate, priority, source, calendarEventId, emailId, goalId, createdAt, *tags',
+        workouts: '++id, date, completedAt, createdAt',
+        meals: '++id, date, type, [date+type], createdAt',
+        transactions: '++id, date, category, source, emailId, createdAt',
+        // habits: dropped `archived` + `lastCompleted` indexes (moved to
+        // archivedAt / derived); kept `name` + `createdAt`. New timestamped
+        // archivedAt makes "restore later" trivial.
+        habits: '++id, name, createdAt, archivedAt',
+        goals: '++id, status, term, targetDate, createdAt',
+        health_logs: '++id, date, type, [date+type], createdAt',
+        chat_history:
+          '++id, conversationId, [conversationId+createdAt], createdAt',
+        cached_briefs: '++id, type, date, [type+date], createdAt',
+        foods: '++id, name, barcode, lastUsedAt, useCount, createdAt',
+        meal_entries: '++id, date, type, foodId, recipeId, [date+type], createdAt',
+        goal_journal: '++id, goalId, [goalId+createdAt], createdAt',
+        exercises: '++id, name, isCustom, lastUsedAt, useCount, createdAt',
+        workout_templates: '++id, name, lastUsedAt, useCount, createdAt',
+        cardio_sessions: '++id, date, kind, createdAt',
+        notes: '++id, updatedAt, createdAt',
+        recipes: '++id, name, lastUsedAt, useCount, createdAt',
+        // new — one row per habit per day; compound [habitId+date] enables the
+        // cheap "did we log this habit today?" lookup that per-day upserts and
+        // 30-day heatmaps rely on.
+        habit_entries: '++id, habitId, date, [habitId+date], createdAt',
+      })
+      .upgrade(async (tx) => {
+        // Legacy habit rows have `history: number[]`, `frequency`,
+        // `customDays`, `lastCompleted`, `archived?`. Convert each to the new
+        // shape: kind=binary, schedule from frequency+customDays,
+        // archivedAt from archived flag. Blow up the history array into
+        // per-day habit_entries so no completion data is lost.
+        interface LegacyHabit {
+          id: number
+          history?: number[]
+          frequency?: 'daily' | 'weekly' | 'custom'
+          customDays?: number[]
+          archived?: boolean
+        }
+        const habits = await tx.table<LegacyHabit>('habits').toArray()
+        for (const h of habits) {
+          const startOfDay = (ts: number) => {
+            const d = new Date(ts)
+            d.setHours(0, 0, 0, 0)
+            return d.getTime()
+          }
+          // Dedupe by day since the old model allowed multiple check-ins.
+          const seenDays = new Set<number>()
+          for (const ts of h.history ?? []) {
+            const day = startOfDay(ts)
+            if (seenDays.has(day)) continue
+            seenDays.add(day)
+            await tx.table('habit_entries').add({
+              habitId: h.id,
+              date: day,
+              value: 1,
+              target: 1,
+              createdAt: ts,
+            })
+          }
+
+          let schedule: HabitSchedule = { mode: 'daily' }
+          if (h.frequency === 'custom' && h.customDays?.length) {
+            schedule = { mode: 'weekdays', days: h.customDays }
+          } else if (h.frequency === 'weekly') {
+            // Older "weekly" habits had no day list — treat as 1x/week.
+            schedule = { mode: 'perWeek', perWeek: 1 }
+          }
+
+          await tx.table('habits').update(h.id, {
+            kind: 'binary',
+            schedule,
+            archivedAt: h.archived ? Date.now() : undefined,
+            history: undefined,
+            frequency: undefined,
+            customDays: undefined,
+            lastCompleted: undefined,
+            archived: undefined,
+          })
+        }
+      })
   }
 }
 

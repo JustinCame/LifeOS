@@ -32,6 +32,7 @@ export interface Backup {
     workout_templates: unknown[]
     goal_journal: unknown[]
     recipes: unknown[]
+    habit_entries: unknown[]
   }
 }
 
@@ -43,7 +44,7 @@ export async function exportAll(): Promise<Backup> {
   const [
     tasks, workouts, meals, transactions, habits, goals,
     healthLogs, chatHistory, cachedBriefs, foods, mealEntries, cardioSessions,
-    exercises, notes, workoutTemplates, goalJournal, recipes,
+    exercises, notes, workoutTemplates, goalJournal, recipes, habitEntries,
   ] = await Promise.all([
     db.tasks.toArray(),
     db.workouts.toArray(),
@@ -62,6 +63,7 @@ export async function exportAll(): Promise<Backup> {
     db.workout_templates.toArray(),
     db.goal_journal.toArray(),
     db.recipes.toArray(),
+    db.habit_entries.toArray(),
   ])
 
   const data = {
@@ -83,6 +85,7 @@ export async function exportAll(): Promise<Backup> {
     workout_templates: workoutTemplates,
     goal_journal: goalJournal,
     recipes,
+    habit_entries: habitEntries,
   }
 
   const counts: Record<string, number> = {}
@@ -125,7 +128,7 @@ export async function importAll(rawJson: string): Promise<Backup['counts']> {
       db.habits, db.goals, db.health_logs, db.chat_history,
       db.cached_briefs, db.foods, db.meal_entries, db.cardio_sessions,
       db.exercises, db.notes, db.workout_templates, db.goal_journal,
-      db.recipes,
+      db.recipes, db.habit_entries,
     ],
     async () => {
       // Preserve sensitive settings — clear only non-sensitive ones.
@@ -155,6 +158,7 @@ export async function importAll(rawJson: string): Promise<Backup['counts']> {
         db.workout_templates.clear(),
         db.goal_journal.clear(),
         db.recipes.clear(),
+        db.habit_entries.clear(),
       ])
 
       // Restore.
@@ -180,6 +184,7 @@ export async function importAll(rawJson: string): Promise<Backup['counts']> {
       await restore(db.workout_templates, d.workout_templates)
       await restore(db.goal_journal, d.goal_journal)
       await restore(db.recipes, d.recipes)
+      await restore(db.habit_entries, d.habit_entries)
     },
   )
 
