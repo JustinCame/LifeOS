@@ -39,9 +39,18 @@ export default function HabitSheet({ habit, onClose }: Props) {
   );
 
   const [shown, setShown] = useState(false);
+  // Guard against iOS ghost-clicks: when the sheet is opened from a button
+  // inside another modal (HabitDetail), the click that opened it can
+  // re-target onto the newly-mounted overlay and dismiss the sheet. Delay
+  // the overlay's clickability past the tap's replay window.
+  const [interactive, setInteractive] = useState(false);
   useEffect(() => {
-    const id = requestAnimationFrame(() => setShown(true));
-    return () => cancelAnimationFrame(id);
+    const raf = requestAnimationFrame(() => setShown(true));
+    const t = window.setTimeout(() => setInteractive(true), 350);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
   }, []);
   const close = () => {
     setShown(false);
@@ -83,10 +92,10 @@ export default function HabitSheet({ habit, onClose }: Props) {
   return (
     <>
       <div
-        onClick={close}
+        onClick={interactive ? close : undefined}
         className={`absolute inset-0 z-40 bg-black/45 transition-opacity duration-200 ${
           shown ? "opacity-100" : "opacity-0"
-        }`}
+        } ${interactive ? "" : "pointer-events-none"}`}
       />
       <div
         className={`absolute inset-x-0 bottom-0 z-40 flex h-[88%] flex-col rounded-t-[28px] border-t border-border bg-bg shadow-[0_-20px_40px_rgb(0_0_0/0.32)] transition-transform duration-300 ${
