@@ -4,7 +4,7 @@ import Calendar from "./screens/Calendar";
 import Fitness from "./screens/Fitness";
 import Macros from "./screens/Macros";
 import Health from "./screens/Health";
-import Goals from "./screens/Goals";
+import Habits from "./screens/Habits";
 import Notes from "./screens/Notes";
 import Chat from "./screens/Chat";
 import { ChatDock } from "./components/primitives";
@@ -15,14 +15,16 @@ import type { DailyMetricType } from "./lib/health";
 import { COACH_CONFIG, type CoachKey } from "./lib/coaches";
 
 const THEME_KEY = "lifeos:theme";
-type Tab = "home" | "calendar" | "fitness" | "macros" | "health" | "goals" | "notes";
+type Tab = "home" | "calendar" | "fitness" | "macros" | "health" | "habits" | "notes";
 
 function tabToCoachKey(tab: Tab): CoachKey {
   switch (tab) {
     case "fitness": return "fitness";
     case "macros": return "macros";
     case "health": return "health";
-    case "goals": return "goals";
+    // Habits shares Benson (the "goals" coach) since goals live on the same
+    // screen as a toggle.
+    case "habits": return "goals";
     // notes shares the Today coach until it gets its own butler
     default: return "home";
   }
@@ -71,7 +73,11 @@ export default function App() {
   return (
     <main className="relative mx-auto h-dvh max-w-[640px] overflow-hidden bg-bg">
       {tab === "home" ? (
-        <Home onOpenMetric={openMetric} onOpenBackup={openBackup} />
+        <Home
+          onOpenMetric={openMetric}
+          onOpenBackup={openBackup}
+          onOpenHabits={() => setTab("habits")}
+        />
       ) : tab === "calendar" ? (
         <Calendar />
       ) : tab === "fitness" ? (
@@ -80,8 +86,8 @@ export default function App() {
         <Macros />
       ) : tab === "health" ? (
         <Health onOpenMetric={openMetric} />
-      ) : tab === "goals" ? (
-        <Goals />
+      ) : tab === "habits" ? (
+        <Habits />
       ) : (
         <Notes />
       )}
@@ -152,10 +158,10 @@ function TabBar({ value, onChange }: { value: Tab; onChange: (v: Tab) => void })
         label="Health"
       />
       <TabButton
-        active={value === "goals"}
-        onClick={() => onChange("goals")}
-        icon={<TargetIcon />}
-        label="Goals"
+        active={value === "habits"}
+        onClick={() => onChange("habits")}
+        icon={<HabitIcon />}
+        label="Habits"
       />
       <TabButton
         active={value === "notes"}
@@ -213,12 +219,14 @@ function MacrosIcon() {
     </svg>
   );
 }
-function TargetIcon() {
+function HabitIcon() {
+  // Ring with a partial arc — reads as "progress toward completion" and
+  // echoes the drag rings on the Habits screen.
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="10" r="6.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="10" cy="10" r="3" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="10" cy="10" r="1" fill="currentColor" />
+      <circle cx="10" cy="10" r="6.5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.35" />
+      <path d="M10 3.5a6.5 6.5 0 0 1 5.6 3.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="10" cy="10" r="1.6" fill="currentColor" />
     </svg>
   );
 }

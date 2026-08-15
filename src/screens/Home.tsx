@@ -13,6 +13,7 @@ import {
   type DailyMetricType,
 } from "../lib/health";
 import WeeklyReviewSheet from "../components/WeeklyReviewSheet";
+import HabitRingRow from "../components/HabitRingRow";
 import {
   disableNotifications,
   enableNotifications,
@@ -24,9 +25,14 @@ import {
 interface HomeProps {
   onOpenMetric: (type: DailyMetricType) => void;
   onOpenBackup: () => void;
+  onOpenHabits: () => void;
 }
 
-export default function Home({ onOpenMetric, onOpenBackup }: HomeProps) {
+export default function Home({
+  onOpenMetric,
+  onOpenBackup,
+  onOpenHabits,
+}: HomeProps) {
   const [reviewOpen, setReviewOpen] = useState(false);
 
   // --- Calendar (live, tomorrow) ---
@@ -219,9 +225,7 @@ export default function Home({ onOpenMetric, onOpenBackup }: HomeProps) {
           </Card>
         </Section>
 
-        {/* Habits — placeholder while the new HabitRingRow lands in a
-            follow-up step of the redesign. Full-featured Habits tab replaces
-            the old Goals tab in the next step. */}
+        <HabitRingRow onOpenHabits={onOpenHabits} />
 
         {/* Stats */}
         <Section title="Today's stats">
