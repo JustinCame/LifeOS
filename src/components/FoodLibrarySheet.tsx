@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db";
 import type { Food } from "../db/types";
-import { deleteFood, updateFood } from "../lib/macros";
+import { addFood, deleteFood, updateFood, type NewFood } from "../lib/macros";
 
 interface Props {
   onClose: () => void;
@@ -12,6 +12,7 @@ const TRANSITION_MS = 280;
 
 export default function FoodLibrarySheet({ onClose }: Props) {
   const [editing, setEditing] = useState<Food | null>(null);
+  const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
 
   const [shown, setShown] = useState(false);
@@ -61,9 +62,12 @@ export default function FoodLibrarySheet({ onClose }: Props) {
       >
         <div className="mx-auto mt-2 h-1 w-10 rounded-[2px] bg-border-strong" />
         <div className="flex items-center justify-between px-[18px] pb-2.5 pt-3.5">
-          {editing ? (
+          {editing || creating ? (
             <button
-              onClick={() => setEditing(null)}
+              onClick={() => {
+                setEditing(null);
+                setCreating(false);
+              }}
               className="text-base text-accent-fg"
             >
               ← Back
@@ -80,14 +84,24 @@ export default function FoodLibrarySheet({ onClose }: Props) {
             Done
           </button>
         </div>
-        {editing && (
+        {(editing || creating) && (
           <div className="px-[18px] pb-1 text-sm font-medium uppercase tracking-[0.04em] text-muted">
-            Edit food
+            {creating ? "New food" : "Edit food"}
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto px-[18px] pb-6 [&::-webkit-scrollbar]:hidden">
-          {editing ? (
+          {creating ? (
+            <NewFoodInlineForm
+              initialName={query}
+              onSave={async (payload) => {
+                await addFood(payload);
+                setCreating(false);
+                setQuery("");
+              }}
+              onCancel={() => setCreating(false)}
+            />
+          ) : editing ? (
             <EditFoodForm
               key={editing.id}
               food={editing}
@@ -104,13 +118,22 @@ export default function FoodLibrarySheet({ onClose }: Props) {
             />
           ) : (
             <div className="space-y-4">
-              <div className="rounded-[10px] border border-border bg-surface px-3 py-2 text-sm">
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search foods…"
-                  className="w-full bg-transparent outline-none placeholder:text-subtle"
-                />
+              <div className="flex items-center gap-2">
+                <div className="flex-1 rounded-[10px] border border-border bg-surface px-3 py-2 text-sm">
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search foods…"
+                    className="w-full bg-transparent outline-none placeholder:text-subtle"
+                  />
+                </div>
+                <button
+                  onClick={() => setCreating(true)}
+                  className="grid h-10 w-10 place-items-center rounded-[10px] bg-accent text-[#0a160d]"
+                  aria-label="New food"
+                >
+                  <PlusIcon />
+                </button>
               </div>
 
               <div className="font-mono text-[11px] text-subtle">
@@ -120,9 +143,29 @@ export default function FoodLibrarySheet({ onClose }: Props) {
 
               {filtered.length === 0 ? (
                 <div className="rounded-[12px] border border-dashed border-border bg-surface px-3.5 py-6 text-center text-sm text-muted">
-                  {query.trim()
-                    ? `No matches for "${query}".`
-                    : "No foods saved yet. Add some via + Add food on any meal."}
+                  {query.trim() ? (
+                    <>
+                      No matches for "{query}".{" "}
+                      <button
+                        onClick={() => setCreating(true)}
+                        className="text-accent-fg underline-offset-2 hover:underline"
+                      >
+                        Add as new food
+                      </button>
+                      .
+                    </>
+                  ) : (
+                    <>
+                      No foods saved yet.{" "}
+                      <button
+                        onClick={() => setCreating(true)}
+                        className="text-accent-fg underline-offset-2 hover:underline"
+                      >
+                        Add your first food
+                      </button>
+                      .
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -296,3 +339,91 @@ function parseNum(s: string): number {
   const n = parseFloat(s);
   return Number.isNaN(n) ? 0 : n;
 }
+
+// Compact new-food form shown when the user taps + on the library sheet.
+// Adds to the library only; no meal-entry side effect.
+function NewFoodInlineForm({
+  initialName,
+  onSave,
+  onCancel,
+}: {
+  initialName: string;
+  onSave: (food: NewFood) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [brand, setBrand] = useState("");
+  const [servingSize, setServingSize] = useState("1 serving");
+  const [calories, setCalories] = useState("");
+  const [protein, setProtein] = useState("");
+  const [carbs, setCarbs] = useState("");
+  const [fat, setFat] = useState("");
+
+  const valid = name.trim().length > 0 && servingSize.trim().length > 0;
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    onSave({
+      name: name.trim(),
+      brand: brand.trim() || undefined,
+      servingSize: servingSize.trim(),
+      macros: {
+        calories: parseNum(calories),
+        protein: parseNum(protein),
+        carbs: parseNum(carbs),
+        fat: parseNum(fat),
+      },
+    });
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3 pt-2">
+      <p className="text-xs leading-relaxed text-muted">
+        Saves to your library so you can log it any time. Won't touch today's
+        macros.
+      </p>
+      <Field label="Name" value={name} onChange={setName} placeholder="Chicken breast" />
+      <Field label="Brand (optional)" value={brand} onChange={setBrand} />
+      <Field
+        label="Serving size"
+        value={servingSize}
+        onChange={setServingSize}
+        placeholder="4 oz / 100 g / 1 cup"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Calories" value={calories} onChange={setCalories} numeric />
+        <Field label="Protein (g)" value={protein} onChange={setProtein} numeric />
+        <Field label="Carbs (g)" value={carbs} onChange={setCarbs} numeric />
+        <Field label="Fat (g)" value={fat} onChange={setFat} numeric />
+      </div>
+      <button
+        type="submit"
+        disabled={!valid}
+        className={`w-full rounded-[10px] py-2.5 text-sm font-medium transition ${
+          valid ? "bg-accent text-[#0a160d]" : "bg-surface-2 text-subtle"
+        }`}
+      >
+        Save to library
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="w-full rounded-[10px] border border-border bg-surface py-2 text-xs text-subtle hover:border-border-strong hover:text-fg"
+      >
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+const PlusIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <path
+      d="M7 1v12M1 7h12"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+    />
+  </svg>
+);
