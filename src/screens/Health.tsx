@@ -51,6 +51,19 @@ const WATER_SPEC: MetricSpec = {
   format: (v) => v.toFixed(2),
 };
 
+// Filter chips shown above the weight trend line. `days: null` = all-time.
+interface TrendWindow {
+  label: string;
+  days: number | null;
+}
+const WEIGHT_WINDOWS: TrendWindow[] = [
+  { label: "1W", days: 7 },
+  { label: "1M", days: 30 },
+  { label: "3M", days: 90 },
+  { label: "1Y", days: 365 },
+  { label: "All", days: null },
+];
+
 interface Props {
   onOpenMetric: (type: DailyMetricType) => void;
 }
@@ -59,8 +72,8 @@ export default function Health({ onOpenMetric }: Props) {
   const [exportOpen, setExportOpen] = useState(false);
   const today = startOfToday();
   const fourteenDaysAgo = today - 13 * 86_400_000;
-  const ninetyDaysAgo = today - 89 * 86_400_000;
-  // Wide enough that the weight calendar can browse back ~12 months.
+  // Wide enough that sleep/water 14-day trends have room; weight has its
+  // own all-time query below.
   const windowStart = today - 365 * 86_400_000;
 
   const recentLogs =
@@ -73,17 +86,17 @@ export default function Health({ onOpenMetric }: Props) {
       [windowStart, today],
     ) ?? [];
 
+  // All weight logs, ever — small dataset (one value per day at most) so the
+  // full history is cheap. Needed so the trend card can filter across any
+  // window the user picks (1W ... All) and the calendar can page back years.
+  const allWeightLogs =
+    useLiveQuery(
+      () => db.health_logs.where("type").equals("weight").toArray(),
+    ) ?? [];
+
   const todayLogs = useMemo(
     () => recentLogs.filter((l) => l.date === today),
     [recentLogs, today],
-  );
-  const weightLogs = useMemo(
-    () => recentLogs.filter((l) => l.type === "weight"),
-    [recentLogs],
-  );
-  const weightLogsTrend = useMemo(
-    () => weightLogs.filter((l) => l.date >= ninetyDaysAgo),
-    [weightLogs, ninetyDaysAgo],
   );
   const sleepLogs14 = useMemo(
     () =>
@@ -142,8 +155,13 @@ export default function Health({ onOpenMetric }: Props) {
 
         <Section title="Weight">
           <div className="space-y-3">
-            <WeightHeatmap logs={weightLogs} />
-            <TrendCard spec={WEIGHT_SPEC} logs={weightLogsTrend} />
+            <WeightHeatmap logs={allWeightLogs} />
+            <TrendCard
+              spec={WEIGHT_SPEC}
+              logs={allWeightLogs}
+              windows={WEIGHT_WINDOWS}
+              defaultWindowIdx={2}
+            />
           </div>
         </Section>
 
@@ -326,13 +344,29 @@ function TappableMetricRow({
 function TrendCard({
   spec,
   logs,
+  windows,
+  defaultWindowIdx = 0,
 }: {
   spec: MetricSpec;
   logs: HealthLog[];
+  windows?: TrendWindow[];
+  defaultWindowIdx?: number;
 }) {
+  const [windowIdx, setWindowIdx] = useState(defaultWindowIdx);
+  const currentWindow = windows?.[windowIdx];
+
+  // If a filter is active, drop entries older than the cutoff; otherwise use
+  // everything the parent handed us (sleep/water pass no windows and get the
+  // original 14-day behavior).
+  const filtered = useMemo(() => {
+    if (!currentWindow || currentWindow.days === null) return logs;
+    const cutoff = Date.now() - currentWindow.days * 86_400_000;
+    return logs.filter((l) => l.date >= cutoff);
+  }, [logs, currentWindow]);
+
   const sorted = useMemo(
-    () => [...logs].sort((a, b) => a.date - b.date),
-    [logs],
+    () => [...filtered].sort((a, b) => a.date - b.date),
+    [filtered],
   );
   const values = sorted.map((l) => l.value);
   const latest = sorted[sorted.length - 1]?.value;
@@ -389,6 +423,23 @@ function TrendCard({
           </div>
         )}
       </div>
+      {windows && windows.length > 0 && (
+        <div className="mt-2 flex gap-1">
+          {windows.map((w, i) => (
+            <button
+              key={w.label}
+              onClick={() => setWindowIdx(i)}
+              className={`flex-1 rounded-[6px] px-1 py-1 font-mono text-[10px] transition ${
+                i === windowIdx
+                  ? "bg-accent-soft text-accent-fg"
+                  : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
+              }`}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mt-2">
         {sorted.length === 0 ? (
           <div className="font-mono text-[11px] text-subtle">no data</div>
