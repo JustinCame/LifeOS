@@ -2,6 +2,10 @@ import { useMemo } from "react";
 import type { Habit, HabitEntry } from "../db/types";
 import { isScheduledOn, progressOf, startOfDay } from "../lib/habits";
 
+// Days before the habit existed are rendered as rest cells (transparent +
+// border), not as "kept" cells — mainly so brand-new avoid habits don't paint
+// the entire 30/84-day window green.
+
 interface Props {
   habit: Habit;
   entries: HabitEntry[];
@@ -30,6 +34,8 @@ export default function HabitHeatmap({
     return m;
   }, [entries]);
 
+  const habitStart = startOfDay(habit.createdAt);
+
   const cells = useMemo(() => {
     const arr: {
       day: number;
@@ -39,13 +45,14 @@ export default function HabitHeatmap({
     }[] = [];
     for (let i = days - 1; i >= 0; i--) {
       const day = today - i * 86_400_000;
-      const scheduled = isScheduledOn(habit, day);
+      // Pre-existence days render as rest cells regardless of habit kind.
+      const scheduled = day >= habitStart && isScheduledOn(habit, day);
       const entry = byDay.get(day);
-      const progress = progressOf(habit, entry);
+      const progress = scheduled ? progressOf(habit, entry) : 0;
       arr.push({ day, scheduled, progress, isToday: day === today });
     }
     return arr;
-  }, [days, today, byDay, habit]);
+  }, [days, today, byDay, habit, habitStart]);
 
   return (
     <div
