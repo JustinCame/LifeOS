@@ -246,11 +246,15 @@ export default function HabitDetail({ habitId, onClose }: Props) {
             </Card>
           </div>
         </div>
-      </div>
 
-      {editOpen && (
-        <HabitSheet habit={habit} onClose={() => setEditOpen(false)} />
-      )}
+        {/* Render the edit sheet INSIDE the z-50 push container. HabitDetail
+            establishes its own stacking context, so a sibling sheet at z-40
+            would be hidden behind this screen's opaque bg. As a child, the
+            sheet stacks above the detail's contents just fine. */}
+        {editOpen && (
+          <HabitSheet habit={habit} onClose={() => setEditOpen(false)} />
+        )}
+      </div>
     </>
   );
 }
