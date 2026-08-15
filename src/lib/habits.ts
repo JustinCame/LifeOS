@@ -287,6 +287,14 @@ export async function unarchiveHabit(id: number): Promise<void> {
   await db.habits.update(id, { archivedAt: undefined })
 }
 
+export async function pinHabit(id: number): Promise<void> {
+  await db.habits.update(id, { pinnedAt: Date.now() })
+}
+
+export async function unpinHabit(id: number): Promise<void> {
+  await db.habits.update(id, { pinnedAt: undefined })
+}
+
 // Wipes the habit AND its history — used by the "Delete habit and history"
 // action in the danger zone. Archiving is the softer default.
 export async function deleteHabit(id: number): Promise<void> {

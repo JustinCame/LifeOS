@@ -5,7 +5,9 @@ import {
   archiveHabit,
   defaultScheduleFor,
   deleteHabit,
+  pinHabit,
   unarchiveHabit,
+  unpinHabit,
   updateHabit,
 } from "../lib/habits";
 
@@ -358,6 +360,17 @@ export default function HabitSheet({ habit, onClose }: Props) {
 
           {editing && habit && (
             <div className="space-y-2 border-t border-border pt-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (habit.pinnedAt) await unpinHabit(habit.id!);
+                  else await pinHabit(habit.id!);
+                  close();
+                }}
+                className="w-full rounded-[10px] border border-border bg-surface py-2 text-xs text-subtle hover:border-border-strong hover:text-fg"
+              >
+                {habit.pinnedAt ? "Unpin" : "Pin to top"}
+              </button>
               <button
                 type="button"
                 onClick={async () => {

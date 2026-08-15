@@ -28,10 +28,19 @@ export default function Habits() {
 
   const habits =
     useLiveQuery(() => db.habits.orderBy("createdAt").toArray()) ?? [];
-  const activeHabits = useMemo(
-    () => habits.filter((h) => !h.archivedAt),
-    [habits],
-  );
+  const activeHabits = useMemo(() => {
+    // Pinned habits sort above unpinned. Within pinned, most-recently-pinned
+    // comes first so a fresh pin jumps straight to the top.
+    return habits
+      .filter((h) => !h.archivedAt)
+      .slice()
+      .sort((a, b) => {
+        const aPin = a.pinnedAt ?? 0;
+        const bPin = b.pinnedAt ?? 0;
+        if (aPin !== bPin) return bPin - aPin;
+        return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+      });
+  }, [habits]);
   const goals =
     useLiveQuery(() => db.goals.toArray()) ?? [];
   const activeGoals = goals.filter((g) => g.status !== "completed");
@@ -223,8 +232,13 @@ function HabitCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <div className="truncate text-base leading-tight text-fg">
-              {habit.name}
+            <div className="flex min-w-0 items-center gap-1.5">
+              {habit.pinnedAt && (
+                <PinIcon className="flex-shrink-0 text-accent-fg" />
+              )}
+              <div className="truncate text-base leading-tight text-fg">
+                {habit.name}
+              </div>
             </div>
             {!scheduled && (
               <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-subtle">
@@ -321,5 +335,28 @@ function CenterReadout({
         / {target}
       </div>
     </div>
+  );
+}
+
+function PinIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      fill="none"
+      className={className}
+    >
+      <path
+        d="M6.2 1 9 3.8 6.5 4.3 4.2 6.6 4.7 8 2 5.3 3.4 5.8 5.7 3.5 6.2 1Z"
+        fill="currentColor"
+      />
+      <path
+        d="M3 6l-2 3"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }

@@ -257,6 +257,9 @@ export interface Habit {
   // a workout completed today). Toggling a water/sleep-linked habit ON also
   // fills the linked log to its goal. Only meaningful on binary habits.
   linkedMetric?: 'water' | 'sleep' | 'workout'
+  // When set, this habit sorts above unpinned habits on the Habits screen.
+  // Timestamp so multiple pinned habits order by most-recently-pinned first.
+  pinnedAt?: number
 }
 
 // One entry per habit per day — replaces the old `history: number[]` array on
