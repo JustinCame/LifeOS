@@ -5,6 +5,7 @@ import type { Food, Recipe, RecipeIngredient } from "../db/types";
 import {
   MEAL_LABELS,
   MEAL_ORDER,
+  addFood,
   addRecipe,
   deleteRecipe,
   ingredientFromFood,
@@ -13,6 +14,7 @@ import {
   totalRecipeMacros,
   updateRecipe,
   type MealType,
+  type NewFood,
   type NewRecipe,
 } from "../lib/macros";
 
@@ -491,6 +493,9 @@ function PickIngredientView({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Food | null>(null);
   const [servings, setServings] = useState("1");
+  // "creating" toggles the inline new-food form so users don't have to leave
+  // the recipe flow to add a one-off ingredient (garlic, herbs, etc.).
+  const [creating, setCreating] = useState(false);
 
   const foods = useLiveQuery(() => db.foods.orderBy("name").toArray()) ?? [];
   const filtered = useMemo(() => {
@@ -502,6 +507,21 @@ function PickIngredientView({
         (f.brand?.toLowerCase().includes(q) ?? false),
     );
   }, [foods, query]);
+
+  if (creating) {
+    return (
+      <NewFoodInlineForm
+        initialName={query}
+        onSave={async (payload) => {
+          const created = await addFood(payload);
+          setCreating(false);
+          // Slide straight into the servings step for the just-created food.
+          setSelected(created);
+        }}
+        onCancel={() => setCreating(false)}
+      />
+    );
+  }
 
   if (selected) {
     const n = parseFloat(servings);
@@ -590,19 +610,39 @@ function PickIngredientView({
 
   return (
     <div className="space-y-3 pt-2">
-      <div className="rounded-[10px] border border-border bg-surface px-3 py-2 text-sm">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search foods…"
-          className="w-full bg-transparent outline-none placeholder:text-subtle"
-        />
+      <div className="flex items-center gap-2">
+        <div className="flex-1 rounded-[10px] border border-border bg-surface px-3 py-2 text-sm">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search foods…"
+            className="w-full bg-transparent outline-none placeholder:text-subtle"
+          />
+        </div>
+        <button
+          onClick={() => setCreating(true)}
+          className="grid h-10 w-10 place-items-center rounded-[10px] bg-accent text-[#0a160d]"
+          aria-label="New food"
+        >
+          <PlusIcon />
+        </button>
       </div>
       {filtered.length === 0 ? (
         <div className="rounded-[12px] border border-dashed border-border bg-surface px-3.5 py-6 text-center text-sm text-muted">
-          {query.trim()
-            ? `No matches for "${query}".`
-            : "No foods in your library yet."}
+          {query.trim() ? (
+            <>
+              No matches for "{query}".{" "}
+              <button
+                onClick={() => setCreating(true)}
+                className="text-accent-fg underline-offset-2 hover:underline"
+              >
+                Add as new food
+              </button>
+              .
+            </>
+          ) : (
+            "No foods in your library yet."
+          )}
         </div>
       ) : (
         <div className="space-y-1">
@@ -628,6 +668,87 @@ function PickIngredientView({
       )}
     </div>
   );
+}
+
+// Compact new-food form shown inside the ingredient picker so users can
+// create a food and add it as an ingredient without leaving the recipe flow.
+function NewFoodInlineForm({
+  initialName,
+  onSave,
+  onCancel,
+}: {
+  initialName: string;
+  onSave: (food: NewFood) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [brand, setBrand] = useState("");
+  const [servingSize, setServingSize] = useState("1 serving");
+  const [calories, setCalories] = useState("");
+  const [protein, setProtein] = useState("");
+  const [carbs, setCarbs] = useState("");
+  const [fat, setFat] = useState("");
+
+  const valid = name.trim().length > 0 && servingSize.trim().length > 0;
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    onSave({
+      name: name.trim(),
+      brand: brand.trim() || undefined,
+      servingSize: servingSize.trim(),
+      macros: {
+        calories: parseNumFallback(calories),
+        protein: parseNumFallback(protein),
+        carbs: parseNumFallback(carbs),
+        fat: parseNumFallback(fat),
+      },
+    });
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3 pt-2">
+      <p className="text-xs leading-relaxed text-muted">
+        Saves to your food library so you can reuse it later.
+      </p>
+      <Field label="Name" value={name} onChange={setName} placeholder="Garlic clove" />
+      <Field label="Brand (optional)" value={brand} onChange={setBrand} />
+      <Field
+        label="Serving size"
+        value={servingSize}
+        onChange={setServingSize}
+        placeholder="1 clove / 100 g / 1 tbsp"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Calories" value={calories} onChange={setCalories} numeric />
+        <Field label="Protein (g)" value={protein} onChange={setProtein} numeric />
+        <Field label="Carbs (g)" value={carbs} onChange={setCarbs} numeric />
+        <Field label="Fat (g)" value={fat} onChange={setFat} numeric />
+      </div>
+      <button
+        type="submit"
+        disabled={!valid}
+        className={`w-full rounded-[10px] py-2.5 text-sm font-medium transition ${
+          valid ? "bg-accent text-[#0a160d]" : "bg-surface-2 text-subtle"
+        }`}
+      >
+        Save & pick servings
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="w-full rounded-[10px] border border-border bg-surface py-2 text-xs text-subtle hover:border-border-strong hover:text-fg"
+      >
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+function parseNumFallback(s: string): number {
+  const n = parseFloat(s);
+  return Number.isNaN(n) ? 0 : n;
 }
 
 /* -------------------- Log to meal -------------------- */
