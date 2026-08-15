@@ -252,6 +252,11 @@ export interface Habit {
   // habits are distinguishable at a glance. Falls back to a completion
   // checkmark when unset and the habit is done.
   emoji?: string
+  // Optional link to an external data source. When set, the habit's daily
+  // completion is derived from that source (water/sleep meeting the goal, or
+  // a workout completed today). Toggling a water/sleep-linked habit ON also
+  // fills the linked log to its goal. Only meaningful on binary habits.
+  linkedMetric?: 'water' | 'sleep' | 'workout'
 }
 
 // One entry per habit per day — replaces the old `history: number[]` array on

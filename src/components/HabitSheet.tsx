@@ -31,6 +31,9 @@ export default function HabitSheet({ habit, onClose }: Props) {
   const [name, setName] = useState(habit?.name ?? "");
   const [emoji, setEmoji] = useState(habit?.emoji ?? "");
   const [kind, setKind] = useState<HabitKind>(habit?.kind ?? "binary");
+  const [linkedMetric, setLinkedMetric] = useState<
+    "water" | "sleep" | "workout" | ""
+  >(habit?.linkedMetric ?? "");
   const [target, setTarget] = useState(
     habit?.target !== undefined ? String(habit.target) : "",
   );
@@ -84,6 +87,9 @@ export default function HabitSheet({ habit, onClose }: Props) {
       // Trim + strip zero-width joiners aren't necessary — Dexie stores the
       // raw string; empty stays empty via undefined.
       emoji: emoji.trim() || undefined,
+      // Link only survives for binary habits — the field is hidden otherwise.
+      linkedMetric:
+        kind === "binary" && linkedMetric ? linkedMetric : undefined,
     };
     if (editing && habit) {
       await updateHabit(habit.id!, payload);
@@ -275,6 +281,50 @@ export default function HabitSheet({ habit, onClose }: Props) {
               </div>
             )}
           </div>
+
+          {kind === "binary" && (
+            <div>
+              <div className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted">
+                Link to
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {(
+                  [
+                    { key: "", label: "None" },
+                    { key: "water", label: "Water" },
+                    { key: "sleep", label: "Sleep" },
+                    { key: "workout", label: "Workout" },
+                  ] as const
+                ).map((opt) => {
+                  const active = linkedMetric === opt.key;
+                  return (
+                    <button
+                      key={opt.key || "none"}
+                      type="button"
+                      onClick={() => setLinkedMetric(opt.key)}
+                      className={`rounded-[8px] px-2 py-1.5 text-xs font-medium ${
+                        active
+                          ? "bg-accent-soft text-accent-fg"
+                          : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted">
+                {linkedMetric === "water" &&
+                  "Auto-completes when today's water hits your goal. Tapping the habit fills the log to goal."}
+                {linkedMetric === "sleep" &&
+                  "Auto-completes when today's sleep hits your goal. Tapping the habit fills the log to goal."}
+                {linkedMetric === "workout" &&
+                  "Auto-completes when you finish a workout today. Tapping doesn't do anything — the workout log drives it."}
+                {!linkedMetric &&
+                  "Optional. Ties this habit to a Health metric or a Fitness workout so completion syncs automatically."}
+              </p>
+            </div>
+          )}
 
           <button
             type="submit"

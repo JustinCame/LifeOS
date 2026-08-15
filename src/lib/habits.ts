@@ -1,5 +1,6 @@
 import { db } from '../db'
 import type { Habit, HabitEntry, HabitKind, HabitSchedule } from '../db/types'
+import { getGoal, setDailyValue } from './health'
 
 /* -------------------- Date helpers -------------------- */
 
@@ -297,11 +298,36 @@ export async function deleteHabit(id: number): Promise<void> {
 
 // Upsert today's entry. Value semantics vary by kind — the caller decides
 // (binary: 0/1 toggle; count/duration: absolute; avoid: 0 kept or 1 broken).
+//
+// Linked habits redirect: tapping a water/sleep-linked habit ON fills its
+// linked log to the goal (only if below — never overwrites a higher logged
+// value). Toggling OFF and workout-linked toggles are no-ops; the linked
+// source (water/sleep log; completed workout) is the truth. The
+// syncAllLinkedHabits effect then updates the habit_entry accordingly.
 export async function setHabitValue(
   habit: Habit,
   value: number,
   date: number = startOfDay(),
 ): Promise<void> {
+  if (habit.linkedMetric === 'water' || habit.linkedMetric === 'sleep') {
+    if (value < 1) return // don't destroy the user's logged water/sleep
+    const type = habit.linkedMetric
+    const goal = await getGoal(type)
+    const currentLog = await db.health_logs
+      .where('[date+type]')
+      .equals([date, type])
+      .first()
+    const current = currentLog?.value ?? 0
+    if (goal > 0 && current < goal) {
+      await setDailyValue(type, goal, date)
+    }
+    return
+  }
+  if (habit.linkedMetric === 'workout') {
+    // Workout completion is the source of truth; nothing to do here.
+    return
+  }
+
   const target =
     habit.kind === 'binary' || habit.kind === 'avoid'
       ? 1

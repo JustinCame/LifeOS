@@ -1,4 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { db } from "./db";
+import { syncAllLinkedHabits } from "./lib/linkedHabits";
 import Home from "./screens/Home";
 import Calendar from "./screens/Calendar";
 import Fitness from "./screens/Fitness";
@@ -61,6 +64,8 @@ export default function App() {
   const [backupOpen, setBackupOpen] = useState(false);
   const theme = useSyncExternalStore(subscribeTheme, getTheme, getTheme);
 
+  useLinkedHabitSync();
+
   // Shared handler so Home and Health both open the same MetricSheet for
   // sleep/water — calories still bounce over to the Macros tab.
   const openMetric = (m: DailyMetricType) => {
@@ -122,6 +127,52 @@ export default function App() {
       </button>
     </main>
   );
+}
+
+// Watches today's water/sleep logs and today's workouts. Whenever any of
+// them change, re-runs the linked-habit sync so rings on the Today screen
+// reflect the external source of truth without the user having to toggle
+// anything. Only imports the sync from lib/linkedHabits.
+function useLinkedHabitSync() {
+  const today = (() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  })();
+
+  const waterLog = useLiveQuery(
+    () =>
+      db.health_logs.where("[date+type]").equals([today, "water"]).first(),
+    [today],
+  );
+  const sleepLog = useLiveQuery(
+    () =>
+      db.health_logs.where("[date+type]").equals([today, "sleep"]).first(),
+    [today],
+  );
+  const todayWorkoutsDone = useLiveQuery(
+    () =>
+      db.workouts
+        .where("date")
+        .aboveOrEqual(today)
+        .filter((w) => w.completedAt !== undefined && w.completedAt >= today)
+        .count(),
+    [today],
+  );
+  // Habits set includes archivedAt so the effect re-runs when a habit's
+  // linkedMetric changes (via HabitSheet save → habit table update).
+  const habits = useLiveQuery(() => db.habits.toArray(), []) ?? [];
+
+  useEffect(() => {
+    syncAllLinkedHabits().catch(() => {
+      // Ignore: transient migration / read errors clear on next tick.
+    });
+  }, [
+    waterLog?.value,
+    sleepLog?.value,
+    todayWorkoutsDone,
+    habits.map((h) => `${h.id}:${h.linkedMetric ?? ""}`).join(","),
+  ]);
 }
 
 function TabBar({ value, onChange }: { value: Tab; onChange: (v: Tab) => void }) {
