@@ -1,6 +1,6 @@
 import { db } from '../db'
 import type { Habit, HabitEntry, HabitKind, HabitSchedule } from '../db/types'
-import { getGoal, setDailyValue } from './health'
+import { setDailyValue } from './health'
 
 /* -------------------- Date helpers -------------------- */
 
@@ -310,17 +310,11 @@ export async function setHabitValue(
   date: number = startOfDay(),
 ): Promise<void> {
   if (habit.linkedMetric === 'water' || habit.linkedMetric === 'sleep') {
-    if (value < 1) return // don't destroy the user's logged water/sleep
-    const type = habit.linkedMetric
-    const goal = await getGoal(type)
-    const currentLog = await db.health_logs
-      .where('[date+type]')
-      .equals([date, type])
-      .first()
-    const current = currentLog?.value ?? 0
-    if (goal > 0 && current < goal) {
-      await setDailyValue(type, goal, date)
-    }
+    // Route the value straight to the linked health log. The sync effect
+    // then writes it back into habit_entries with the matching target so
+    // the ring's progress stays consistent. This means dragging the ring
+    // is the same as editing the water/sleep log directly.
+    await setDailyValue(habit.linkedMetric, value, date)
     return
   }
   if (habit.linkedMetric === 'workout') {

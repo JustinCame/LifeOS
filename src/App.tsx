@@ -171,7 +171,14 @@ function useLinkedHabitSync() {
     waterLog?.value,
     sleepLog?.value,
     todayWorkoutsDone,
-    habits.map((h) => `${h.id}:${h.linkedMetric ?? ""}`).join(","),
+    // Re-sync when a habit's link, target, or archive status changes so a
+    // freshly-linked habit picks up today's data immediately.
+    habits
+      .map(
+        (h) =>
+          `${h.id}:${h.linkedMetric ?? ""}:${h.target ?? ""}:${h.archivedAt ? 1 : 0}`,
+      )
+      .join(","),
   ]);
 }
 

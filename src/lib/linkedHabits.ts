@@ -3,10 +3,11 @@ import type { Habit } from '../db/types'
 import { getGoal } from './health'
 import { startOfDay } from './habits'
 
-// Mirror external data (water/sleep goals hit; workout completed) into
-// habit_entries for any habit that opted into a linkedMetric. Called
-// whenever the source data changes so the habit rings on Today reflect
-// reality without the user having to toggle anything manually.
+// Mirror external data into habit_entries for any habit that opted into a
+// linkedMetric. For water/sleep, the entry's *value* matches the health
+// log's value so a duration/count habit ring shows partial progress
+// (5 cups out of 16 → 31% filled). For workouts, the link stays binary:
+// 1 when a workout was completed today, 0 otherwise.
 export async function syncAllLinkedHabits(): Promise<void> {
   const habits = await db.habits.toArray()
   const linked = habits.filter(
@@ -29,44 +30,37 @@ export async function syncAllLinkedHabits(): Promise<void> {
   )
 
   for (const habit of linked) {
-    const shouldBeDone = isLinkedHabitDone(habit, {
-      waterValue: waterLog?.value ?? 0,
-      sleepValue: sleepLog?.value ?? 0,
-      waterGoal,
-      sleepGoal,
-      workoutDoneToday,
-    })
-    await upsertLinkedEntry(habit, shouldBeDone, today)
+    let value = 0
+    let target = habit.target ?? 1
+    switch (habit.linkedMetric) {
+      case 'water':
+        value = waterLog?.value ?? 0
+        // Keep the habit's target aligned with the health goal so the ring's
+        // "how full is it?" always references the current daily target.
+        if (waterGoal > 0) target = waterGoal
+        break
+      case 'sleep':
+        value = sleepLog?.value ?? 0
+        if (sleepGoal > 0) target = sleepGoal
+        break
+      case 'workout':
+        value = workoutDoneToday ? 1 : 0
+        target = 1
+        break
+    }
+    // Persist an updated target on the habit if it drifted from the health
+    // goal — the drag rings + card headers read from habit.target.
+    if (habit.target !== target) {
+      await db.habits.update(habit.id!, { target })
+    }
+    await upsertLinkedEntry(habit, value, target, today)
   }
 }
 
-interface Snapshot {
-  waterValue: number
-  sleepValue: number
-  waterGoal: number
-  sleepGoal: number
-  workoutDoneToday: boolean
-}
-
-function isLinkedHabitDone(habit: Habit, snap: Snapshot): boolean {
-  switch (habit.linkedMetric) {
-    case 'water':
-      return snap.waterGoal > 0 && snap.waterValue >= snap.waterGoal
-    case 'sleep':
-      return snap.sleepGoal > 0 && snap.sleepValue >= snap.sleepGoal
-    case 'workout':
-      return snap.workoutDoneToday
-    default:
-      return false
-  }
-}
-
-// Upsert today's entry for a linked habit, then re-derive streak/longest.
-// Skips the recompute if nothing changed to avoid loops in the useEffect
-// that calls this from App.tsx.
 async function upsertLinkedEntry(
   habit: Habit,
-  done: boolean,
+  value: number,
+  target: number,
   date: number,
 ): Promise<void> {
   const existing = await db.habit_entries
@@ -74,36 +68,32 @@ async function upsertLinkedEntry(
     .equals([habit.id!, date])
     .first()
   const currentValue = existing?.value ?? 0
-  const target = 1
-  const nextValue = done ? 1 : 0
-  if (currentValue === nextValue) return
+  const currentTarget = existing?.target ?? 0
+  if (currentValue === value && currentTarget === target) return
 
   if (existing) {
-    await db.habit_entries.update(existing.id!, { value: nextValue, target })
-  } else if (nextValue === 1) {
+    await db.habit_entries.update(existing.id!, { value, target })
+  } else if (value > 0) {
     await db.habit_entries.add({
       habitId: habit.id!,
       date,
-      value: 1,
+      value,
       target,
       createdAt: Date.now(),
     })
+  } else {
+    // No existing entry AND no value to log — nothing to do. Avoids
+    // creating value=0 stub rows for habits the user hasn't touched.
+    return
   }
-  // No else — don't create a value=0 entry for a linked habit that was
-  // never done today. Keeps the entries table quiet.
 
-  // Recompute persisted streak/longest without importing the helper (avoids
-  // a circular import). Duplicate a minimal walk-back here.
+  // Recompute persisted streak/longest so the header stats stay honest.
   const entries = await db.habit_entries
     .where('habitId')
     .equals(habit.id!)
     .toArray()
-  const { streak, longest } = await import('./habits').then((m) => ({
-    streak: m.computeStreak(habit, entries),
-    longest: Math.max(
-      m.computeLongestStreak(habit, entries),
-      m.computeStreak(habit, entries),
-    ),
-  }))
+  const { computeStreak, computeLongestStreak } = await import('./habits')
+  const streak = computeStreak(habit, entries)
+  const longest = Math.max(computeLongestStreak(habit, entries), streak)
   await db.habits.update(habit.id!, { streak, longestStreak: longest })
 }

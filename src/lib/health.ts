@@ -16,15 +16,17 @@ interface MetricConfig {
 
 export const METRIC_CONFIG: Record<DailyMetricType, MetricConfig> = {
   water: {
-    defaultGoal: 3.785,
-    unit: 'L',
-    settingKey: 'goal_water_L',
+    // 16 US cups ≈ the old 3.785 L (a nominal gallon), so the migration
+    // from L→cups doesn't change what a "goal met" day looks like.
+    defaultGoal: 16,
+    unit: 'cups',
+    settingKey: 'goal_water_cups',
     label: 'Water',
-    quickAdds: [0.25, 0.5, 1],
-    format: (v) => v.toFixed(2),
+    quickAdds: [1, 2, 4],
+    format: (v) => (Number.isInteger(v) ? v.toString() : v.toFixed(1)),
   },
   sleep: {
-    defaultGoal: 7,
+    defaultGoal: 8,
     unit: 'h',
     settingKey: 'goal_sleep_h',
     label: 'Sleep',

@@ -45,10 +45,10 @@ const SLEEP_SPEC: MetricSpec = {
 const WATER_SPEC: MetricSpec = {
   type: "water",
   label: "Water",
-  unit: "L",
-  step: "0.25",
-  hint: "Liters today",
-  format: (v) => v.toFixed(2),
+  unit: "cups",
+  step: "0.5",
+  hint: "Cups today",
+  format: (v) => (Number.isInteger(v) ? v.toString() : v.toFixed(1)),
 };
 
 // Filter chips shown above the weight trend line. `days: null` = all-time.

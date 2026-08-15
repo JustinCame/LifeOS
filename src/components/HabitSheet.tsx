@@ -75,6 +75,28 @@ export default function HabitSheet({ habit, onClose }: Props) {
     !needsTarget || (!Number.isNaN(parsedTarget) && parsedTarget > 0);
   const valid = name.trim().length > 0 && targetValid;
 
+  // Picking a link auto-configures kind/target/unit so those fields can be
+  // hidden — the linked source dictates them (16 cups of water, 8 h of
+  // sleep, or a binary "workout done"). Picking None leaves the current
+  // values alone so the user can tweak freely.
+  const applyLink = (link: "water" | "sleep" | "workout" | "") => {
+    setLinkedMetric(link);
+    if (link === "water") {
+      setKind("count");
+      setTarget("16");
+      setUnit("cups");
+    } else if (link === "sleep") {
+      setKind("duration");
+      setTarget("8");
+      setUnit("h");
+    } else if (link === "workout") {
+      setKind("binary");
+      setTarget("");
+      setUnit("");
+    }
+  };
+  const linked = linkedMetric !== "";
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) return;
@@ -87,9 +109,7 @@ export default function HabitSheet({ habit, onClose }: Props) {
       // Trim + strip zero-width joiners aren't necessary — Dexie stores the
       // raw string; empty stays empty via undefined.
       emoji: emoji.trim() || undefined,
-      // Link only survives for binary habits — the field is hidden otherwise.
-      linkedMetric:
-        kind === "binary" && linkedMetric ? linkedMetric : undefined,
+      linkedMetric: linkedMetric || undefined,
     };
     if (editing && habit) {
       await updateHabit(habit.id!, payload);
@@ -162,36 +182,80 @@ export default function HabitSheet({ habit, onClose }: Props) {
 
           <div>
             <div className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted">
-              Kind
+              Link to
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {KIND_OPTIONS.map((k) => (
-                <button
-                  key={k.key}
-                  type="button"
-                  onClick={() => setKind(k.key)}
-                  className={`rounded-[10px] border px-3 py-2 text-left ${
-                    kind === k.key
-                      ? "border-accent bg-accent-soft"
-                      : "border-border bg-surface hover:border-border-strong"
-                  }`}
-                >
-                  <div
-                    className={`text-sm font-medium ${
-                      kind === k.key ? "text-accent-fg" : "text-fg"
+            <div className="grid grid-cols-4 gap-2">
+              {(
+                [
+                  { key: "", label: "None" },
+                  { key: "water", label: "Water" },
+                  { key: "sleep", label: "Sleep" },
+                  { key: "workout", label: "Workout" },
+                ] as const
+              ).map((opt) => {
+                const active = linkedMetric === opt.key;
+                return (
+                  <button
+                    key={opt.key || "none"}
+                    type="button"
+                    onClick={() => applyLink(opt.key)}
+                    className={`rounded-[8px] px-2 py-1.5 text-xs font-medium ${
+                      active
+                        ? "bg-accent-soft text-accent-fg"
+                        : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
                     }`}
                   >
-                    {k.label}
-                  </div>
-                  <div className="mt-0.5 font-mono text-[10px] text-muted">
-                    {k.hint}
-                  </div>
-                </button>
-              ))}
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
+            <p className="mt-1.5 text-[11px] text-muted">
+              {linkedMetric === "water" &&
+                "Tracks today's water — 16 cups target. Dragging the ring updates the water log."}
+              {linkedMetric === "sleep" &&
+                "Tracks last night's sleep — 8 h target. Dragging the ring updates the sleep log."}
+              {linkedMetric === "workout" &&
+                "Auto-completes when you finish a workout today. Tapping doesn't do anything — the workout log drives it."}
+              {!linkedMetric &&
+                "Optional. Ties this habit to a Health metric or a Fitness workout so completion syncs automatically."}
+            </p>
           </div>
 
-          {needsTarget && (
+          {!linked && (
+            <div>
+              <div className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted">
+                Kind
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {KIND_OPTIONS.map((k) => (
+                  <button
+                    key={k.key}
+                    type="button"
+                    onClick={() => setKind(k.key)}
+                    className={`rounded-[10px] border px-3 py-2 text-left ${
+                      kind === k.key
+                        ? "border-accent bg-accent-soft"
+                        : "border-border bg-surface hover:border-border-strong"
+                    }`}
+                  >
+                    <div
+                      className={`text-sm font-medium ${
+                        kind === k.key ? "text-accent-fg" : "text-fg"
+                      }`}
+                    >
+                      {k.label}
+                    </div>
+                    <div className="mt-0.5 font-mono text-[10px] text-muted">
+                      {k.hint}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!linked && needsTarget && (
             <div className="grid grid-cols-2 gap-2">
               <Field
                 label={kind === "duration" ? "Target (per day)" : "Target"}
@@ -281,50 +345,6 @@ export default function HabitSheet({ habit, onClose }: Props) {
               </div>
             )}
           </div>
-
-          {kind === "binary" && (
-            <div>
-              <div className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted">
-                Link to
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                {(
-                  [
-                    { key: "", label: "None" },
-                    { key: "water", label: "Water" },
-                    { key: "sleep", label: "Sleep" },
-                    { key: "workout", label: "Workout" },
-                  ] as const
-                ).map((opt) => {
-                  const active = linkedMetric === opt.key;
-                  return (
-                    <button
-                      key={opt.key || "none"}
-                      type="button"
-                      onClick={() => setLinkedMetric(opt.key)}
-                      className={`rounded-[8px] px-2 py-1.5 text-xs font-medium ${
-                        active
-                          ? "bg-accent-soft text-accent-fg"
-                          : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-1.5 text-[11px] text-muted">
-                {linkedMetric === "water" &&
-                  "Auto-completes when today's water hits your goal. Tapping the habit fills the log to goal."}
-                {linkedMetric === "sleep" &&
-                  "Auto-completes when today's sleep hits your goal. Tapping the habit fills the log to goal."}
-                {linkedMetric === "workout" &&
-                  "Auto-completes when you finish a workout today. Tapping doesn't do anything — the workout log drives it."}
-                {!linkedMetric &&
-                  "Optional. Ties this habit to a Health metric or a Fitness workout so completion syncs automatically."}
-              </p>
-            </div>
-          )}
 
           <button
             type="submit"

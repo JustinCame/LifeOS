@@ -318,6 +318,58 @@ class LifeOSDB extends Dexie {
           })
         }
       })
+
+    // v11: convert water tracking from liters to US cups (1 L ≈ 4.22675 c).
+    // Existing water health_logs and the saved water goal are converted so
+    // historical trends still line up after the unit switch. Same schema
+    // shape as v10.
+    this.version(11)
+      .stores({
+        settings: '&key, updatedAt',
+        tasks:
+          '++id, status, dueDate, priority, source, calendarEventId, emailId, goalId, createdAt, *tags',
+        workouts: '++id, date, completedAt, createdAt',
+        meals: '++id, date, type, [date+type], createdAt',
+        transactions: '++id, date, category, source, emailId, createdAt',
+        habits: '++id, name, createdAt, archivedAt',
+        goals: '++id, status, term, targetDate, createdAt',
+        health_logs: '++id, date, type, [date+type], createdAt',
+        chat_history:
+          '++id, conversationId, [conversationId+createdAt], createdAt',
+        cached_briefs: '++id, type, date, [type+date], createdAt',
+        foods: '++id, name, barcode, lastUsedAt, useCount, createdAt',
+        meal_entries: '++id, date, type, foodId, recipeId, [date+type], createdAt',
+        goal_journal: '++id, goalId, [goalId+createdAt], createdAt',
+        exercises: '++id, name, isCustom, lastUsedAt, useCount, createdAt',
+        workout_templates: '++id, name, lastUsedAt, useCount, createdAt',
+        cardio_sessions: '++id, date, kind, createdAt',
+        notes: '++id, updatedAt, createdAt',
+        recipes: '++id, name, lastUsedAt, useCount, createdAt',
+        habit_entries: '++id, habitId, date, [habitId+date], createdAt',
+      })
+      .upgrade(async (tx) => {
+        const L_TO_CUPS = 4.22675
+        const waterLogs = await tx
+          .table('health_logs')
+          .where('type')
+          .equals('water')
+          .toArray()
+        for (const log of waterLogs) {
+          await tx.table('health_logs').update(log.id, {
+            value: log.value * L_TO_CUPS,
+            unit: 'cups',
+          })
+        }
+        const oldGoal = await tx.table('settings').get('goal_water_L')
+        if (oldGoal) {
+          await tx.table('settings').put({
+            key: 'goal_water_cups',
+            value: (oldGoal.value as number) * L_TO_CUPS,
+            updatedAt: Date.now(),
+          })
+          await tx.table('settings').delete('goal_water_L')
+        }
+      })
   }
 }
 
