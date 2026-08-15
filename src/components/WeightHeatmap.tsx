@@ -249,13 +249,34 @@ export default function WeightHeatmap({ logs }: { logs: HealthLog[] }) {
                     : "none",
               }}
             >
-              <span
-                className={`font-mono text-xs ${
-                  dayTextDark ? "text-[#0a160d]" : "text-fg"
-                }`}
-              >
-                {cell.day}
-              </span>
+              {isLogged ? (
+                <>
+                  {/* Day number: tiny in the top-right so the weight can be
+                      the primary readout without losing which day is which. */}
+                  <span
+                    className={`absolute right-[3px] top-[2px] font-mono text-[8px] leading-none opacity-70 ${
+                      dayTextDark ? "text-[#0a160d]" : "text-fg"
+                    }`}
+                  >
+                    {cell.day}
+                  </span>
+                  <span
+                    className={`font-mono text-[11px] font-medium leading-none ${
+                      dayTextDark ? "text-[#0a160d]" : "text-fg"
+                    }`}
+                  >
+                    {Math.round(cell.weight!)}
+                  </span>
+                </>
+              ) : (
+                <span
+                  className={`font-mono text-xs ${
+                    dayTextDark ? "text-[#0a160d]" : "text-fg"
+                  }`}
+                >
+                  {cell.day}
+                </span>
+              )}
             </button>
           );
         })}
