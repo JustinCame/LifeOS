@@ -20,6 +20,10 @@ export const DAILY_TAGS: DailyTag[] = [
   { key: 'create',  label: 'Create',  color: '#14D1B4' },
   { key: 'play',    label: 'Play',    color: '#FF3FA4' },
   { key: 'slow',    label: 'Slow',    color: '#6E7A85' },
+  { key: 'out',     label: 'Out',     color: '#4FC3E8' },
+  { key: 'sick',    label: 'Sick',    color: '#7A5C8F' },
+  { key: 'travel',  label: 'Travel',  color: '#D9C24A' },
+  { key: 'upkeep',  label: 'Upkeep',  color: '#A8906B' },
 ]
 
 export function tagByKey(key: string): DailyTag | undefined {

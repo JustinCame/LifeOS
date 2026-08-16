@@ -98,6 +98,17 @@ export default function DailyPromptCard() {
           rows={3}
           className="mt-3 w-full resize-none rounded-[10px] border border-border bg-bg p-3 text-sm leading-snug outline-none placeholder:text-subtle"
         />
+        <button
+          onClick={async () => {
+            setStatus("saving");
+            await upsertDailyLog(text, tags, today);
+            setStatus("saved");
+            window.setTimeout(() => setStatus("idle"), 1200);
+          }}
+          className="mt-3 w-full rounded-[10px] bg-accent py-2 text-sm font-medium text-[#0a160d] active:scale-[0.99]"
+        >
+          Submit
+        </button>
       </div>
     </Section>
   );
