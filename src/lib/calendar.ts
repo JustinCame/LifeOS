@@ -91,6 +91,17 @@ export async function listTomorrow(): Promise<CalEvent[]> {
   return listEventsForRange(tomorrowStart, tomorrowEnd)
 }
 
+// Events across the next `days` calendar days, starting tomorrow at 00:00.
+// Used by Today's schedule section — "what's coming up this week?".
+export async function listNextDays(days: number): Promise<CalEvent[]> {
+  const now = new Date()
+  const start = startOfDay(new Date(now.getTime() + 24 * 60 * 60 * 1000))
+  const end = startOfDay(
+    new Date(start.getTime() + days * 24 * 60 * 60 * 1000),
+  )
+  return listEventsForRange(start, end)
+}
+
 export async function listToday(): Promise<CalEvent[]> {
   const now = new Date()
   const todayStart = startOfDay(now)

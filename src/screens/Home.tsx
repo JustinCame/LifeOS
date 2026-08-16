@@ -3,7 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Card, Section, ListRow, IconButton, Input } from "../components/primitives";
 import { db } from "../db";
 import type { Task } from "../db/types";
-import { listTomorrow, formatEventTime, type CalEvent } from "../lib/calendar";
+import { listNextDays, formatEventTime, type CalEvent } from "../lib/calendar";
 import {
   METRIC_CONFIG,
   computeStreak,
@@ -35,7 +35,7 @@ export default function Home({
 }: HomeProps) {
   const [reviewOpen, setReviewOpen] = useState(false);
 
-  // --- Calendar (live, tomorrow) ---
+  // --- Calendar (live, next 7 days starting tomorrow) ---
   const authSetting = useLiveQuery(() => db.settings.get("google_auth"));
   const accessToken =
     (authSetting?.value as { accessToken?: string } | undefined)?.accessToken;
@@ -55,7 +55,7 @@ export default function Home({
     let cancelled = false;
     setScheduleLoading(true);
     setScheduleError(null);
-    listTomorrow()
+    listNextDays(7)
       .then((events) => { if (!cancelled) setSchedule(events); })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -67,6 +67,21 @@ export default function Home({
       .finally(() => { if (!cancelled) setScheduleLoading(false); });
     return () => { cancelled = true; };
   }, [accessToken]);
+
+  // Group events by calendar day so the schedule renders as day headings +
+  // per-day event rows instead of a flat list where dates repeat.
+  const scheduleByDay = (() => {
+    const groups = new Map<number, CalEvent[]>();
+    for (const e of schedule) {
+      const d = new Date(e.start);
+      d.setHours(0, 0, 0, 0);
+      const key = d.getTime();
+      const arr = groups.get(key) ?? [];
+      arr.push(e);
+      groups.set(key, arr);
+    }
+    return Array.from(groups.entries()).sort((a, b) => a[0] - b[0]);
+  })();
 
   // --- Tasks (Dexie, this week only — older tasks remain in IDB but hidden) ---
   const weekStart = startOfWeek();
@@ -116,8 +131,8 @@ export default function Home({
     scheduleLoading ? "loading…" :
     scheduleError   ? "calendar error" :
     schedule.length === 0
-      ? "nothing on tomorrow's calendar"
-      : `${schedule.length} ${schedule.length === 1 ? "event" : "events"} tomorrow`;
+      ? "nothing on the calendar this week"
+      : `${schedule.length} ${schedule.length === 1 ? "event" : "events"} this week`;
 
   const sectionMeta =
     !isAuthed       ? "" :
@@ -142,13 +157,18 @@ export default function Home({
           </div>
           <div className="text-right font-mono text-xs leading-relaxed tracking-[0.02em] text-subtle">
             {schedule[0] && (
-              <>next up<br/><b className="font-medium text-fg">{formatEventTime(schedule[0])}</b></>
+              <>
+                next up<br/>
+                <b className="font-medium text-fg">
+                  {shortDateLabel(schedule[0].start)} · {formatEventTime(schedule[0])}
+                </b>
+              </>
             )}
           </div>
         </div>
 
         {/* Schedule */}
-        <Section title="Tomorrow" meta={sectionMeta}>
+        <Section title="Next 7 days" meta={sectionMeta}>
           <Card>
             {!isAuthed && (
               <div className="px-3.5 py-4 text-sm text-muted">
@@ -165,21 +185,36 @@ export default function Home({
             )}
             {isAuthed && !scheduleLoading && !scheduleError && schedule.length === 0 && (
               <div className="px-3.5 py-4 text-sm text-muted">
-                Nothing on tomorrow's calendar.
+                Nothing on the calendar for the next 7 days.
               </div>
             )}
-            {schedule.map((s) => (
-              <div key={s.id} className="grid grid-cols-[56px_1fr] border-t border-border px-3.5 py-3 first:border-t-0">
-                <div className="pt-px font-mono text-xs tracking-[0.01em] text-muted">
-                  {formatEventTime(s)}
+            {scheduleByDay.map(([dayStart, events]) => (
+              <div key={dayStart} className="border-t border-border first:border-t-0">
+                <div className="flex items-baseline justify-between bg-surface-2/40 px-3.5 py-1.5">
+                  <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted">
+                    {longDateLabel(dayStart)}
+                  </span>
+                  <span className="font-mono text-[10px] text-subtle">
+                    {events.length} {events.length === 1 ? "event" : "events"}
+                  </span>
                 </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-subtle" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-base leading-tight">{s.title}</div>
-                    {s.location && <div className="mt-0.5 text-xs text-muted">{s.location}</div>}
+                {events.map((s) => (
+                  <div
+                    key={s.id}
+                    className="grid grid-cols-[56px_1fr] border-t border-border px-3.5 py-3"
+                  >
+                    <div className="pt-px font-mono text-xs tracking-[0.01em] text-muted">
+                      {formatEventTime(s)}
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-subtle" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-base leading-tight">{s.title}</div>
+                        {s.location && <div className="mt-0.5 text-xs text-muted">{s.location}</div>}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             ))}
           </Card>
@@ -597,3 +632,24 @@ const PlusIcon = () => (
     <path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
   </svg>
 );
+
+// "Tue" for tomorrow, "Sat" for later this week. Short + relative-feeling.
+function shortDateLabel(d: Date | number): string {
+  const dt = new Date(d);
+  return dt.toLocaleDateString(undefined, { weekday: "short" });
+}
+
+// "Tomorrow · Nov 26" for the next day, "Wed · Nov 28" for later days.
+// Gives the schedule per-day headings enough context to plan around.
+function longDateLabel(dayStart: number): string {
+  const d = new Date(dayStart);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = today.getTime() + 86_400_000;
+  const prefix =
+    dayStart === tomorrow
+      ? "Tomorrow"
+      : d.toLocaleDateString(undefined, { weekday: "short" });
+  const md = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${prefix} · ${md}`;
+}
