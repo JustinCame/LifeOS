@@ -129,6 +129,69 @@ export async function startWorkout(name = 'Workout'): Promise<number> {
   return id as number
 }
 
+// Create a backdated, already-completed workout. Optionally seeds it from a
+// template so the exercises show up pre-loaded with target sets at 0 weight
+// — user just needs to fill in the weights/reps that actually happened.
+export async function logPastWorkout(input: {
+  name: string
+  dateMs: number
+  durationMin: number
+  templateId?: number
+}): Promise<number> {
+  const { name, dateMs, durationMin, templateId } = input
+  const day = (() => {
+    const d = new Date(dateMs)
+    d.setHours(12, 0, 0, 0) // noon of the target day
+    return d.getTime()
+  })()
+  const durationSec = Math.max(1, Math.round(durationMin * 60))
+  const completedAt = day + durationSec * 1000
+  const now = Date.now()
+
+  let exercises: WorkoutExercise[] = []
+  if (templateId !== undefined) {
+    const template = await db.workout_templates.get(templateId)
+    if (template) {
+      exercises = template.exercises.map((ex) => {
+        const setCount = ex.targetSets && ex.targetSets > 0 ? ex.targetSets : 1
+        const sets: WorkoutSet[] = Array.from({ length: setCount }, () => ({
+          reps: 0,
+          weight: 0,
+          ...(ex.restSec ? { restSec: ex.restSec } : {}),
+        }))
+        return {
+          exerciseId: ex.exerciseId,
+          exerciseName: ex.exerciseName,
+          sets,
+          ...(ex.targetSets ? { targetSets: ex.targetSets } : {}),
+          ...(ex.repLow !== undefined ? { repLow: ex.repLow } : {}),
+          ...(ex.repHigh !== undefined ? { repHigh: ex.repHigh } : {}),
+          ...(ex.notes ? { notes: ex.notes } : {}),
+          ...(ex.alternatives && ex.alternatives.length > 0
+            ? { alternatives: ex.alternatives }
+            : {}),
+        }
+      })
+      // Bump template use.
+      await db.workout_templates.update(templateId, {
+        lastUsedAt: now,
+        useCount: (template.useCount ?? 0) + 1,
+      })
+    }
+  }
+
+  const id = await db.workouts.add({
+    date: day,
+    name,
+    exercises,
+    durationSec,
+    startedAt: day,
+    completedAt,
+    createdAt: now,
+  })
+  return id as number
+}
+
 export async function finishWorkout(id: number): Promise<void> {
   const w = await db.workouts.get(id)
   if (!w) return

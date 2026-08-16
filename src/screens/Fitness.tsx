@@ -32,6 +32,8 @@ import StartDial from "../components/StartDial";
 import FatigueCard from "../components/FatigueCard";
 import CardioCalendar from "../components/CardioCalendar";
 import ExercisesScreen from "./ExercisesScreen";
+import BacklogWorkoutSheet from "../components/BacklogWorkoutSheet";
+import BacklogCardioSheet from "../components/BacklogCardioSheet";
 import { computeFatigue } from "../lib/fatigue";
 import { exportFitnessText } from "../lib/exports";
 import {
@@ -71,6 +73,8 @@ export default function Fitness() {
   const [cardioCalendarOpen, setCardioCalendarOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
   const [exercisesOpen, setExercisesOpen] = useState(false);
+  const [backlogWorkoutOpen, setBacklogWorkoutOpen] = useState(false);
+  const [backlogCardioOpen, setBacklogCardioOpen] = useState(false);
 
   const cardioSessions =
     useLiveQuery(() =>
@@ -167,6 +171,12 @@ export default function Fitness() {
             )}
           </div>
           <CardioWeeklyTile sessions={cardioSessions} />
+          <button
+            onClick={() => setBacklogCardioOpen(true)}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-[10px] border border-border bg-surface px-3 py-1.5 text-xs text-subtle hover:border-border-strong hover:text-fg"
+          >
+            + Log past session
+          </button>
           <div className="mt-2 space-y-2">
             <CollapsibleHeader
               label="Recent sessions"
@@ -229,6 +239,12 @@ export default function Fitness() {
               </span>
             )}
           </div>
+          <button
+            onClick={() => setBacklogWorkoutOpen(true)}
+            className="mb-2 flex w-full items-center justify-center gap-2 rounded-[10px] border border-border bg-surface px-3 py-1.5 text-xs text-subtle hover:border-border-strong hover:text-fg"
+          >
+            + Log past workout
+          </button>
           {completed.length === 0 ? (
             <div className="rounded-[16px] border border-dashed border-border bg-surface px-5 py-8 text-center text-sm text-muted">
               No completed workouts yet. Tap Start on the dial above to begin.
@@ -296,6 +312,19 @@ export default function Fitness() {
 
       {exercisesOpen && (
         <ExercisesScreen onClose={() => setExercisesOpen(false)} />
+      )}
+
+      {backlogWorkoutOpen && (
+        <BacklogWorkoutSheet
+          onCreated={(id) => {
+            setBacklogWorkoutOpen(false);
+            setOpenWorkoutId(id);
+          }}
+          onClose={() => setBacklogWorkoutOpen(false)}
+        />
+      )}
+      {backlogCardioOpen && (
+        <BacklogCardioSheet onClose={() => setBacklogCardioOpen(false)} />
       )}
 
       {exportOpen && (

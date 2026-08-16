@@ -16,6 +16,7 @@ import {
 import DragRing from "../components/DragRing";
 import HabitHeatmap from "../components/HabitHeatmap";
 import HabitSheet from "../components/HabitSheet";
+import BacklogHabitSheet from "../components/BacklogHabitSheet";
 import { Card } from "../components/primitives";
 
 interface Props {
@@ -43,6 +44,7 @@ export default function HabitDetail({ habitId, onClose }: Props) {
   };
 
   const [editOpen, setEditOpen] = useState(false);
+  const [backlogOpen, setBacklogOpen] = useState(false);
 
   // Local ring value so drag flushes to Dexie in one write on release rather
   // than storming during pointermove.
@@ -84,12 +86,20 @@ export default function HabitDetail({ habitId, onClose }: Props) {
               <ChevronLeft />
               Habits
             </button>
-            <button
-              onClick={() => setEditOpen(true)}
-              className="rounded-[8px] border border-border bg-surface px-2.5 py-1 text-xs text-subtle hover:border-border-strong hover:text-fg"
-            >
-              Edit
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setBacklogOpen(true)}
+                className="rounded-[8px] border border-border bg-surface px-2.5 py-1 text-xs text-subtle hover:border-border-strong hover:text-fg"
+              >
+                Log past day
+              </button>
+              <button
+                onClick={() => setEditOpen(true)}
+                className="rounded-[8px] border border-border bg-surface px-2.5 py-1 text-xs text-subtle hover:border-border-strong hover:text-fg"
+              >
+                Edit
+              </button>
+            </div>
           </div>
 
           {/* Header */}
@@ -253,6 +263,12 @@ export default function HabitDetail({ habitId, onClose }: Props) {
             sheet stacks above the detail's contents just fine. */}
         {editOpen && (
           <HabitSheet habit={habit} onClose={() => setEditOpen(false)} />
+        )}
+        {backlogOpen && (
+          <BacklogHabitSheet
+            habit={habit}
+            onClose={() => setBacklogOpen(false)}
+          />
         )}
       </div>
     </>

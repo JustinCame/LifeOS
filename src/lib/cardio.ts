@@ -17,10 +17,13 @@ export async function addCardioSession(input: {
   durationMin: number
   modality?: string
   notes?: string
+  // Optional past date (ms). Defaults to now for live logging from the dial.
+  date?: number
 }): Promise<number> {
   const now = Date.now()
+  const date = input.date ?? now
   const id = await db.cardio_sessions.add({
-    date: now,
+    date,
     kind: input.kind,
     durationMin: input.durationMin,
     ...(input.modality?.trim()
