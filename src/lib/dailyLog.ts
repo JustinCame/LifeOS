@@ -14,7 +14,7 @@ export interface DailyTag {
 export const DAILY_TAGS: DailyTag[] = [
   { key: 'work',    label: 'Work',    color: '#E01A22' },
   { key: 'study',   label: 'Study',   color: '#4F6BFF' },
-  { key: 'move',    label: 'Move',    color: '#6FCF2F' },
+  { key: 'move',    label: 'Activity', color: '#6FCF2F' },
   { key: 'friends', label: 'Friends', color: '#FF8A00' },
   { key: 'family',  label: 'Family',  color: '#9B5CFF' },
   { key: 'create',  label: 'Create',  color: '#14D1B4' },
