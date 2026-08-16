@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CardioSession } from "../db/types";
+import { CARDIO_SCHEDULE } from "../lib/userProgram";
+
+// dow → 2-letter tag for the scheduled cardio kind, if any.
+const CARDIO_TAG: Record<number, string | undefined> = (() => {
+  const m: Record<number, string | undefined> = {};
+  for (const [dow, slot] of Object.entries(CARDIO_SCHEDULE)) {
+    if (!slot) continue;
+    m[Number(dow)] = slot.key === "hiit" ? "HIT" : "Z2";
+  }
+  return m;
+})();
 
 interface Props {
   sessions: CardioSession[];
@@ -126,7 +137,11 @@ export default function CardioCalendar({ sessions }: Props) {
           const hasLiss = cell.sessions.some((s) => s.kind === "liss");
           const hasHiit = cell.sessions.some((s) => s.kind === "hiit");
           const isSel = selected === cell.date;
-          const bg = fillFor(hasLiss, hasHiit, cell.isFuture);
+          const dow = new Date(cell.date).getDay();
+          const scheduledTag = CARDIO_TAG[dow];
+          const isScheduled = scheduledTag !== undefined;
+          const hasAny = hasLiss || hasHiit;
+          const bg = fillFor(hasLiss, hasHiit, cell.isFuture, isScheduled);
           const textCol = hasHiit
             ? "text-[#0a160d] font-medium"
             : hasLiss
@@ -151,6 +166,11 @@ export default function CardioCalendar({ sessions }: Props) {
               }}
             >
               {cell.day}
+              {!hasAny && isScheduled && (
+                <span className="absolute right-[2px] top-[1px] whitespace-nowrap text-[7px] leading-none text-subtle/70">
+                  {scheduledTag}
+                </span>
+              )}
             </button>
           );
         })}
@@ -189,7 +209,12 @@ export default function CardioCalendar({ sessions }: Props) {
   );
 }
 
-function fillFor(hasLiss: boolean, hasHiit: boolean, isFuture: boolean): string {
+function fillFor(
+  hasLiss: boolean,
+  hasHiit: boolean,
+  isFuture: boolean,
+  isScheduled: boolean,
+): string {
   const liss = "color-mix(in oklab, var(--color-accent) 22%, var(--color-surface-2))";
   const hiit = "var(--color-accent)";
   if (hasLiss && hasHiit) {
@@ -197,5 +222,8 @@ function fillFor(hasLiss: boolean, hasHiit: boolean, isFuture: boolean): string 
   }
   if (hasHiit) return hiit;
   if (hasLiss) return liss;
+  // No cardio logged that day: darker for rest, surface-2 for scheduled
+  // (past = "you missed it", future = "coming up").
+  if (!isScheduled) return "var(--color-bg)";
   return isFuture ? "transparent" : "var(--color-surface-2)";
 }

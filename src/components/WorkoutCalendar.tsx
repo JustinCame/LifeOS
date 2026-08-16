@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CardioSession, Workout } from "../db/types";
 import { completedSetCount, formatDuration, totalVolume, countPRsInWorkout } from "../lib/fitness";
+import { LIFTS } from "../lib/userProgram";
 
 interface Props {
   workouts: Workout[];        // completed workouts only
@@ -15,6 +16,14 @@ const KIND_LETTER: Record<string, string> = {
   upper: "Up",
   lower: "Lo",
 };
+
+// dow → 2-letter tag for the day's scheduled lift, or undefined for rest.
+// Built once from LIFTS so the same scheduling info drives the dial + calendar.
+const SCHEDULED_TAG: Record<number, string | undefined> = (() => {
+  const m: Record<number, string | undefined> = {};
+  for (const l of LIFTS) m[l.dow] = KIND_LETTER[l.key];
+  return m;
+})();
 
 // Match on the workout name prefix. PPLUL templates are named "Push", "Pull",
 // "Legs", "Upper", "Lower"; anything else falls back to a blank tag.
@@ -174,13 +183,20 @@ export default function WorkoutCalendar({
           const cardioOnly = !lit && !!cell.cardio;
           const isSel = selected === cell.date;
           const kind = cell.workout ? workoutKind(cell.workout.name) : null;
+          const dow = new Date(cell.date).getDay();
+          const scheduledTag = SCHEDULED_TAG[dow];
+          const isScheduled = scheduledTag !== undefined;
+          // Rest days (no lift on the schedule for that dow) are drawn a
+          // shade darker so the weekly pattern reads at a glance.
           const bg = lit
             ? `color-mix(in oklab, var(--color-accent) ${Math.min(100, 45 + cell.setCount * 2.6)}%, var(--color-surface-2))`
             : cardioOnly
               ? "color-mix(in oklab, var(--color-accent) 14%, var(--color-surface-2))"
-              : cell.isFuture
-                ? "transparent"
-                : "var(--color-surface-2)";
+              : !isScheduled
+                ? "var(--color-bg)"
+                : cell.isFuture
+                  ? "transparent"
+                  : "var(--color-surface-2)";
           const textClass = lit
             ? "font-medium text-[#0a160d]"
             : cardioOnly
@@ -206,6 +222,14 @@ export default function WorkoutCalendar({
               {lit && kind && (
                 <span className="absolute bottom-[1px] right-[2px] whitespace-nowrap text-[7px] leading-none opacity-70">
                   {KIND_LETTER[kind]}
+                </span>
+              )}
+              {/* Scheduled-but-not-done indicator, top-right. Only shows on
+                  days that don't already have a completed workout so the
+                  bottom-right kind letter stays authoritative. */}
+              {!lit && isScheduled && (
+                <span className="absolute right-[2px] top-[1px] whitespace-nowrap text-[7px] leading-none text-subtle/70">
+                  {scheduledTag}
                 </span>
               )}
             </button>
