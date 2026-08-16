@@ -26,10 +26,10 @@ import {
 } from "../lib/cardio";
 import WorkoutSheet from "../components/WorkoutSheet";
 import WorkoutSession from "../components/WorkoutSession";
-import CardioSheet from "../components/CardioSheet";
 import ExportSheet from "../components/ExportSheet";
 import StartDial from "../components/StartDial";
 import FatigueCard from "../components/FatigueCard";
+import CardioCalendar from "../components/CardioCalendar";
 import { computeFatigue } from "../lib/fatigue";
 import { exportFitnessText } from "../lib/exports";
 import {
@@ -62,9 +62,12 @@ export default function Fitness() {
   }, [exercises]);
 
   const [openWorkoutId, setOpenWorkoutId] = useState<number | null>(null);
-  const [cardioOpen, setCardioOpen] = useState(false);
-  const [cardioExpanded, setCardioExpanded] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  // Collapsible sections — Recent + both cardio blocks default closed to
+  // keep the top of the screen focused on today.
+  const [cardioLogOpen, setCardioLogOpen] = useState(false);
+  const [cardioCalendarOpen, setCardioCalendarOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
 
   const cardioSessions =
     useLiveQuery(() =>
@@ -148,67 +151,113 @@ export default function Fitness() {
 
         <FatigueCard fatigue={fatigue} />
 
-        {completed.length === 0 ? (
-          <div className="mt-4 rounded-[16px] border border-dashed border-border bg-surface px-5 py-8 text-center text-sm text-muted">
-            No completed workouts yet. Tap{" "}
-            <span className="text-fg">+ Start a Workout</span> to begin.
+        {/* Cardio — weekly tile always visible, log + calendar collapse. */}
+        <div className="mb-[22px]">
+          <div className="mx-1.5 mb-2.5 flex items-baseline justify-between">
+            <h3 className="m-0 text-xs font-medium uppercase tracking-[0.08em] text-muted">
+              Cardio
+            </h3>
+            {cardioSessions.length > 0 && (
+              <span className="font-mono text-xs tracking-[0.02em] text-subtle">
+                {cardioSessions.length}
+              </span>
+            )}
           </div>
-        ) : (
-          <Section title="History" meta={`${completed.length}`}>
-            <Card>
-              {completed.map((w) => (
-                <WorkoutRow
-                  key={w.id}
-                  workout={w}
-                  allWorkouts={completed}
-                  exerciseById={exerciseById}
-                  onClick={() => setOpenWorkoutId(w.id!)}
-                  onClone={async () => {
-                    const id = await cloneWorkout(w.id!);
-                    setOpenWorkoutId(id);
-                  }}
-                />
-              ))}
-            </Card>
-          </Section>
-        )}
-
-        {/* Cardio */}
-        <Section
-          title="Cardio"
-          meta={cardioSessions.length > 0 ? `${cardioSessions.length}` : ""}
-        >
           <CardioWeeklyTile sessions={cardioSessions} />
-          <Card>
-            {cardioSessions.length === 0 && (
-              <div className="px-3.5 py-3 text-sm text-muted">
-                No cardio logged. Aim for 2× Zone 2 and 1× HIIT per week.
-              </div>
+          <div className="mt-2 space-y-2">
+            <CollapsibleHeader
+              label="Recent sessions"
+              meta={
+                cardioSessions.length > 0
+                  ? `${cardioSessions.length}`
+                  : "none"
+              }
+              open={cardioLogOpen}
+              onToggle={() => setCardioLogOpen((v) => !v)}
+            />
+            {cardioLogOpen && (
+              <Card>
+                {cardioSessions.length === 0 ? (
+                  <div className="px-3.5 py-3 text-sm text-muted">
+                    No cardio logged. Aim for 2× Zone 2 and 1× HIIT per week.
+                  </div>
+                ) : (
+                  cardioSessions.map((c) => (
+                    <CardioRow key={c.id} session={c} />
+                  ))
+                )}
+              </Card>
             )}
-            {(cardioExpanded
-              ? cardioSessions
-              : cardioSessions.slice(0, 8)
-            ).map((c) => (
-              <CardioRow key={c.id} session={c} />
-            ))}
-            {cardioSessions.length > 8 && (
-              <button
-                onClick={() => setCardioExpanded((v) => !v)}
-                className="flex w-full items-center justify-center gap-2 border-t border-border px-3.5 py-2 text-xs text-subtle hover:bg-surface-2 hover:text-fg"
-              >
-                {cardioExpanded
-                  ? "Show less"
-                  : `Show all (${cardioSessions.length})`}
-              </button>
+            <CollapsibleHeader
+              label="Cardio calendar"
+              meta="month"
+              open={cardioCalendarOpen}
+              onToggle={() => setCardioCalendarOpen((v) => !v)}
+            />
+            {cardioCalendarOpen && (
+              <CardioCalendar sessions={cardioSessions} />
             )}
-            <button
-              onClick={() => setCardioOpen(true)}
-              className="flex w-full items-center justify-center gap-2 border-t border-border px-3.5 py-2.5 text-sm font-medium text-accent-fg hover:bg-surface-2"
-            >
-              + Log cardio
-            </button>
-          </Card>
-        </Section>
+          </div>
+        </div>
+
+        {/* Exercises link — full screen coming in the next step. */}
+        <button
+          disabled
+          className="mb-[22px] flex w-full items-center gap-3 rounded-[16px] border border-border bg-surface px-3.5 py-3 text-left opacity-70"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] leading-tight text-fg">Exercises</div>
+            <div className="mt-0.5 font-mono text-[11px] text-muted">
+              maxes · weight trends · per-lift history (coming next)
+            </div>
+          </div>
+          <span className="text-subtle">›</span>
+        </button>
+
+        {/* Recent — collapsible so it doesn't dominate the screen. */}
+        <div className="mb-[22px]">
+          <div className="mx-1.5 mb-2.5 flex items-baseline justify-between">
+            <h3 className="m-0 text-xs font-medium uppercase tracking-[0.08em] text-muted">
+              Recent
+            </h3>
+            {completed.length > 0 && (
+              <span className="font-mono text-xs tracking-[0.02em] text-subtle">
+                {completed.length}
+              </span>
+            )}
+          </div>
+          {completed.length === 0 ? (
+            <div className="rounded-[16px] border border-dashed border-border bg-surface px-5 py-8 text-center text-sm text-muted">
+              No completed workouts yet. Tap Start on the dial above to begin.
+            </div>
+          ) : (
+            <>
+              <CollapsibleHeader
+                label="Workout history"
+                meta={`${completed.length}`}
+                open={recentOpen}
+                onToggle={() => setRecentOpen((v) => !v)}
+              />
+              {recentOpen && (
+                <Card>
+                  {completed.map((w) => (
+                    <WorkoutRow
+                      key={w.id}
+                      workout={w}
+                      allWorkouts={completed}
+                      exerciseById={exerciseById}
+                      onClick={() => setOpenWorkoutId(w.id!)}
+                      onClone={async () => {
+                        const id = await cloneWorkout(w.id!);
+                        setOpenWorkoutId(id);
+                      }}
+                    />
+                  ))}
+                </Card>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {openWorkoutId !== null && (() => {
@@ -232,10 +281,6 @@ export default function Fitness() {
           />
         );
       })()}
-
-      {cardioOpen && (
-        <CardioSheet onClose={() => setCardioOpen(false)} />
-      )}
 
       {exportOpen && (
         <ExportSheet
@@ -348,6 +393,41 @@ function CardioRow({ session }: { session: CardioSession }) {
   );
 }
 
+
+// Small header used for the collapsible cardio + recent sub-sections.
+// Rounded pill row with a chevron that flips when open.
+function CollapsibleHeader({
+  label,
+  meta,
+  open,
+  onToggle,
+}: {
+  label: string;
+  meta?: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-surface px-3 py-2 text-left hover:border-border-strong"
+    >
+      <span className="text-sm text-fg">{label}</span>
+      {meta && (
+        <span className="ml-auto font-mono text-[11px] text-subtle">
+          {meta}
+        </span>
+      )}
+      <span
+        className={`text-subtle transition-transform ${
+          open ? "rotate-90" : ""
+        }`}
+      >
+        ›
+      </span>
+    </button>
+  );
+}
 
 const XIcon = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
