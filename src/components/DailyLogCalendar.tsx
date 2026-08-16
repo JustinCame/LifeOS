@@ -145,6 +145,10 @@ export default function DailyLogCalendar() {
           if (cell === null) return <div key={i} className="aspect-square" />;
           const isSelected = selected !== null && cell.date === selected;
           const hasLog = !!cell.log;
+          const tagColors = cell.log?.tags
+            .map((k) => tagByKey(k)?.color)
+            .filter((c): c is string => !!c) ?? [];
+          const background = fillFromColors(tagColors, hasLog);
           return (
             <button
               key={i}
@@ -152,7 +156,7 @@ export default function DailyLogCalendar() {
               onClick={() => setSelected(cell.date)}
               className="relative grid aspect-square place-items-center rounded-[6px]"
               style={{
-                background: hasLog ? "var(--color-surface-2)" : "transparent",
+                background,
                 opacity: cell.isFuture ? 0.3 : 1,
                 boxShadow: isSelected
                   ? "inset 0 0 0 1.5px var(--color-fg)"
@@ -161,10 +165,13 @@ export default function DailyLogCalendar() {
                     : "none",
               }}
             >
-              <span className="font-mono text-xs text-fg">{cell.day}</span>
-              {hasLog && cell.log!.tags.length > 0 && (
-                <TagDots tags={cell.log!.tags} />
-              )}
+              <span
+                className={`font-mono text-xs ${
+                  tagColors.length > 0 ? "text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" : "text-fg"
+                }`}
+              >
+                {cell.day}
+              </span>
             </button>
           );
         })}
@@ -193,29 +200,23 @@ export default function DailyLogCalendar() {
   );
 }
 
-function TagDots({ tags }: { tags: string[] }) {
-  const visible = tags.slice(0, 4);
-  const extra = tags.length - visible.length;
-  return (
-    <div className="absolute right-[3px] top-[3px] flex gap-[2px]">
-      {visible.map((k) => {
-        const t = tagByKey(k);
-        if (!t) return null;
-        return (
-          <span
-            key={k}
-            className="block h-[5px] w-[5px] rounded-full"
-            style={{ background: t.color }}
-          />
-        );
-      })}
-      {extra > 0 && (
-        <span className="font-mono text-[7px] leading-none text-subtle">
-          +{extra}
-        </span>
-      )}
-    </div>
-  );
+// Build the cell background from a list of tag colors:
+//   0 tags  → transparent (no entry) or surface-2 (text-only entry)
+//   1 tag   → solid color
+//   2+ tags → vertical hard-edged stripes so each color is distinct
+function fillFromColors(colors: string[], hasLog: boolean): string {
+  if (colors.length === 0) {
+    return hasLog ? "var(--color-surface-2)" : "transparent";
+  }
+  if (colors.length === 1) return colors[0];
+  const step = 100 / colors.length;
+  const stops: string[] = [];
+  colors.forEach((c, i) => {
+    const start = (i * step).toFixed(2);
+    const end = ((i + 1) * step).toFixed(2);
+    stops.push(`${c} ${start}%`, `${c} ${end}%`);
+  });
+  return `linear-gradient(90deg, ${stops.join(", ")})`;
 }
 
 function SelectedEntry({ log }: { log: DailyLog }) {
