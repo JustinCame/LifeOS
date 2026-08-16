@@ -137,6 +137,21 @@ function GoalRow({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
             )}
           </div>
         )}
+        {!completed && (
+          <div className="mt-1.5 flex items-center gap-2">
+            <div className="h-1 flex-1 overflow-hidden rounded-[1px] bg-surface-2">
+              <span
+                className="block h-full bg-accent transition-[width]"
+                style={{
+                  width: `${Math.max(0, Math.min(100, goal.progress ?? 0))}%`,
+                }}
+              />
+            </div>
+            <span className="font-mono text-[10px] text-subtle">
+              {Math.round(Math.max(0, Math.min(100, goal.progress ?? 0)))}%
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -382,6 +382,8 @@ function GoalDetail({
         )}
       </div>
 
+      <ProgressEditor goal={goal} />
+
       <div className="flex flex-wrap gap-2">
         <button
           onClick={onToggleComplete}
@@ -462,6 +464,73 @@ function GoalDetail({
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* -------------------- Progress editor -------------------- */
+
+// Manual progress slider (0-100). Writes to goal.progress on release so
+// dragging doesn't spam Dexie mid-swipe. Quick-set chips for the common
+// milestones so it's tap-friendly on mobile.
+function ProgressEditor({ goal }: { goal: Goal }) {
+  const pct = Math.max(0, Math.min(100, Math.round(goal.progress ?? 0)));
+  const [draft, setDraft] = useState(pct);
+  useEffect(() => setDraft(pct), [pct]);
+
+  const commit = async (v: number) => {
+    const next = Math.max(0, Math.min(100, Math.round(v)));
+    setDraft(next);
+    if (goal.id !== undefined) {
+      await updateGoal(goal.id, { progress: next });
+    }
+  };
+
+  const disabled = goal.status === "completed";
+
+  return (
+    <div className="rounded-[14px] border border-border bg-surface px-3.5 py-3">
+      <div className="flex items-baseline justify-between">
+        <div className="text-xs uppercase tracking-[0.06em] text-muted">
+          Progress
+        </div>
+        <div
+          className={`font-mono text-sm ${
+            draft >= 100 ? "text-accent-fg" : "text-fg"
+          }`}
+        >
+          {draft}%
+        </div>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => setDraft(parseInt(e.target.value, 10))}
+        onPointerUp={() => commit(draft)}
+        onKeyUp={() => commit(draft)}
+        className="mt-2 w-full accent-[var(--color-accent)] disabled:opacity-40"
+      />
+      <div className="mt-2 flex gap-1.5">
+        {[0, 25, 50, 75, 100].map((v) => (
+          <button
+            key={v}
+            type="button"
+            disabled={disabled}
+            onClick={() => commit(v)}
+            className={`flex-1 rounded-[6px] px-2 py-1 font-mono text-[10px] transition ${
+              draft === v
+                ? "bg-accent-soft text-accent-fg"
+                : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
+            } disabled:opacity-40`}
+          >
+            {v}%
+          </button>
+        ))}
       </div>
     </div>
   );
