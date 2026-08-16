@@ -5,6 +5,7 @@ import type {
   Workout,
   Meal,
   Transaction,
+  DailyLog,
   Habit,
   HabitEntry,
   HabitSchedule,
@@ -42,6 +43,7 @@ class LifeOSDB extends Dexie {
   notes!: Table<Note, number>
   recipes!: Table<Recipe, number>
   habit_entries!: Table<HabitEntry, number>
+  daily_logs!: Table<DailyLog, number>
 
   constructor() {
     super('LifeOS')
@@ -370,6 +372,34 @@ class LifeOSDB extends Dexie {
           await tx.table('settings').delete('goal_water_L')
         }
       })
+
+    // v12: new daily_logs store for the "What did you do today?" prompt +
+    // Notes calendar. `date` is unique (one entry per calendar day) so
+    // upserts use it as the key.
+    this.version(12).stores({
+      settings: '&key, updatedAt',
+      tasks:
+        '++id, status, dueDate, priority, source, calendarEventId, emailId, goalId, createdAt, *tags',
+      workouts: '++id, date, completedAt, createdAt',
+      meals: '++id, date, type, [date+type], createdAt',
+      transactions: '++id, date, category, source, emailId, createdAt',
+      habits: '++id, name, createdAt, archivedAt',
+      goals: '++id, status, term, targetDate, createdAt',
+      health_logs: '++id, date, type, [date+type], createdAt',
+      chat_history:
+        '++id, conversationId, [conversationId+createdAt], createdAt',
+      cached_briefs: '++id, type, date, [type+date], createdAt',
+      foods: '++id, name, barcode, lastUsedAt, useCount, createdAt',
+      meal_entries: '++id, date, type, foodId, recipeId, [date+type], createdAt',
+      goal_journal: '++id, goalId, [goalId+createdAt], createdAt',
+      exercises: '++id, name, isCustom, lastUsedAt, useCount, createdAt',
+      workout_templates: '++id, name, lastUsedAt, useCount, createdAt',
+      cardio_sessions: '++id, date, kind, createdAt',
+      notes: '++id, updatedAt, createdAt',
+      recipes: '++id, name, lastUsedAt, useCount, createdAt',
+      habit_entries: '++id, habitId, date, [habitId+date], createdAt',
+      daily_logs: '++id, &date, updatedAt',
+    })
   }
 }
 

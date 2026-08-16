@@ -344,6 +344,18 @@ export interface CalendarEvent {
   description?: string
 }
 
+// Short reflective journal entry keyed to a single day. Text is optional
+// (tags without a note are fine); tags are optional too (note without tags
+// is fine). Written by the "What did you do today?" prompt on Home.
+export interface DailyLog {
+  id?: number
+  date: number // startOfDay ms — unique across daily_logs (one per day)
+  text: string
+  tags: string[]
+  createdAt: number
+  updatedAt: number
+}
+
 // Freeform notes — simple title + body, auto-saved as you type.
 export interface Note {
   id?: number

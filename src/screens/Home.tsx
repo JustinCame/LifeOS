@@ -14,6 +14,7 @@ import {
 } from "../lib/health";
 import WeeklyReviewSheet from "../components/WeeklyReviewSheet";
 import HabitRingRow from "../components/HabitRingRow";
+import DailyPromptCard from "../components/DailyPromptCard";
 import {
   disableNotifications,
   enableNotifications,
@@ -270,6 +271,8 @@ export default function Home({
             <StatTile metric="calories" onClick={() => onOpenMetric("calories")} />
           </div>
         </Section>
+
+        <DailyPromptCard />
 
         {/* Weekly review */}
         <Section title="Weekly review">
