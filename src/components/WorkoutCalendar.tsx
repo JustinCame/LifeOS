@@ -17,13 +17,13 @@ const KIND_LETTER: Record<string, string> = {
   lower: "Lo",
 };
 
-// dow → 2-letter tag for the day's scheduled lift, or undefined for rest.
-// Built once from LIFTS so the same scheduling info drives the dial + calendar.
-const SCHEDULED_TAG: Record<number, string | undefined> = (() => {
+// Build the dow → 2-letter tag map at render time so custom-program edits
+// pick up here without a stale module snapshot.
+function buildScheduledTag(): Record<number, string | undefined> {
   const m: Record<number, string | undefined> = {};
   for (const l of LIFTS) m[l.dow] = KIND_LETTER[l.key];
   return m;
-})();
+}
 
 // Match on the workout name prefix. PPLUL templates are named "Push", "Pull",
 // "Legs", "Upper", "Lower"; anything else falls back to a blank tag.
@@ -127,6 +127,8 @@ export default function WorkoutCalendar({
 
   const atCurrent =
     year === today0.getFullYear() && month === today0.getMonth();
+
+  const SCHEDULED_TAG = useMemo(() => buildScheduledTag(), []);
 
   const selectedCell = selected !== null
     ? grid.find((c) => c && c.date === selected) ?? null

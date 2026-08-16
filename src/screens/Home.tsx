@@ -15,6 +15,7 @@ import {
 import WeeklyReviewSheet from "../components/WeeklyReviewSheet";
 import HabitRingRow from "../components/HabitRingRow";
 import DailyPromptCard from "../components/DailyPromptCard";
+import ProgramEditorScreen from "./ProgramEditorScreen";
 import {
   disableNotifications,
   enableNotifications,
@@ -35,6 +36,7 @@ export default function Home({
   onOpenHabits,
 }: HomeProps) {
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [programEditorOpen, setProgramEditorOpen] = useState(false);
 
   // --- Calendar (live, next 7 days starting tomorrow) ---
   const authSetting = useLiveQuery(() => db.settings.get("google_auth"));
@@ -284,6 +286,23 @@ export default function Home({
           <div className="space-y-2">
             <NotificationsRow />
             <BackupRow onClick={onOpenBackup} />
+            <button
+              onClick={() => setProgramEditorOpen(true)}
+              className="flex w-full items-center gap-3 rounded-[16px] border border-border bg-surface px-3.5 py-3 text-left hover:border-border-strong active:scale-[0.99]"
+            >
+              <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-surface-2 text-subtle">
+                <DumbbellIcon />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-base leading-tight text-fg">
+                  Workout program
+                </div>
+                <div className="mt-0.5 font-mono text-[11px] text-muted">
+                  Edit schedule, exercises, rep ranges, alternatives
+                </div>
+              </div>
+              <span className="text-subtle">›</span>
+            </button>
           </div>
         </Section>
 
@@ -291,6 +310,10 @@ export default function Home({
           {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
         </div>
       </div>
+
+      {programEditorOpen && (
+        <ProgramEditorScreen onClose={() => setProgramEditorOpen(false)} />
+      )}
 
       {reviewOpen && (
         <WeeklyReviewSheet onClose={() => setReviewOpen(false)} />
@@ -623,6 +646,11 @@ function StatTile({ metric, onClick }: { metric: DailyMetricType; onClick: () =>
 const CheckIcon = () => (
   <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
     <path d="M2 6.8 L5 9.5 L11 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+const DumbbellIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+    <path d="M3 8v4M5 6v8M7 10h6M13 6v8M15 8v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
 const XIcon = () => (

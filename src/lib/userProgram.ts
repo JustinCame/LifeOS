@@ -36,7 +36,11 @@ export interface CardioSlot {
   detail: string
 }
 
-export const LIFTS: LiftDay[] = [
+// Initial (default) values. The exported LIFTS/CARDIO_SCHEDULE arrays start
+// as copies of these; loadUserProgram() overwrites them in place from
+// settings so consumers importing LIFTS/CARDIO_SCHEDULE see the current
+// program without any refactor.
+const INITIAL_LIFTS: LiftDay[] = [
   { key: 'upper', dow: 2, name: 'Upper', sub: 'PPLUL · Upper', exercises: 7, min: 60, templateName: 'PPLUL · Upper' },
   { key: 'lower', dow: 3, name: 'Lower', sub: 'PPLUL · Lower', exercises: 7, min: 60, templateName: 'PPLUL · Lower' },
   { key: 'push',  dow: 5, name: 'Push',  sub: 'PPLUL · Push',  exercises: 7, min: 60, templateName: 'PPLUL · Push' },
@@ -44,8 +48,7 @@ export const LIFTS: LiftDay[] = [
   { key: 'legs',  dow: 0, name: 'Legs',  sub: 'PPLUL · Legs',  exercises: 6, min: 55, templateName: 'PPLUL · Legs' },
 ]
 
-// Cardio scheduled per day-of-week (0=Sun … 6=Sat). Undefined = none.
-export const CARDIO_SCHEDULE: Record<number, CardioSlot | undefined> = {
+const INITIAL_CARDIO_SCHEDULE: Record<number, CardioSlot | undefined> = {
   0: undefined,                                                      // Sun
   1: undefined,                                                      // Mon
   2: { key: 'liss', name: 'Zone 2', min: 40, detail: 'After lifting · 30-40 min' },
@@ -53,6 +56,14 @@ export const CARDIO_SCHEDULE: Record<number, CardioSlot | undefined> = {
   4: { key: 'liss', name: 'Zone 2', min: 40, detail: 'Active recovery · 30-40 min' },
   5: undefined,                                                      // Fri
   6: { key: 'hiit', name: 'HIIT',   min: 20, detail: 'After lifting · 15-20 min' },
+}
+
+// Mutable in-memory copies. Import sites read from these — loadUserProgram
+// mutates them in place so no reassignment happens (avoids ESM live-binding
+// gotchas with const bindings).
+export const LIFTS: LiftDay[] = INITIAL_LIFTS.map((l) => ({ ...l }))
+export const CARDIO_SCHEDULE: Record<number, CardioSlot | undefined> = {
+  ...INITIAL_CARDIO_SCHEDULE,
 }
 
 // Manual picker options when the user toggles cardio mode away from what's
@@ -98,7 +109,7 @@ export const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 // One slot in a day's plan. Sets/rep-range/rest/notes match the user's
 // program spec; alternatives are the 3 swap-outs surfaced by the live
 // session's Swap sheet.
-interface PlanSlot {
+export interface PlanSlot {
   name: string
   equipment: EquipmentType
   muscleGroups: string[]
@@ -110,7 +121,7 @@ interface PlanSlot {
   alternatives: string[]
 }
 
-interface DayPlan {
+export interface DayPlan {
   key: LiftKey
   templateName: string
   slots: PlanSlot[]
@@ -120,8 +131,11 @@ interface DayPlan {
 // re-run and overwrite whatever's in Dexie.
 const PROGRAM_VERSION = 1
 const INSTALL_KEY = 'user_program_installed_v'
+const CONFIG_KEY = 'user_program_config'
 
-const PROGRAM: DayPlan[] = [
+// Default per-day plans (INITIAL_PROGRAM). PROGRAM below is a live
+// in-memory copy that gets mutated in place by loadUserProgram.
+const INITIAL_PROGRAM: DayPlan[] = [
   {
     key: 'upper',
     templateName: 'PPLUL · Upper',
@@ -514,6 +528,12 @@ const PROGRAM: DayPlan[] = [
   },
 ]
 
+// Mutable copy the rest of the app reads from.
+export const PROGRAM: DayPlan[] = INITIAL_PROGRAM.map((d) => ({
+  ...d,
+  slots: d.slots.map((s) => ({ ...s, alternatives: [...s.alternatives] })),
+}))
+
 // Upsert an exercise by name — used for the primary slot AND every
 // alternative so swaps at runtime resolve cleanly to a library entry.
 async function ensureExercise(
@@ -600,4 +620,63 @@ export async function ensureUserProgramInstalled(): Promise<void> {
   const installed = await getSetting<number>(INSTALL_KEY)
   if (installed === PROGRAM_VERSION) return
   await installUserProgram()
+}
+
+/* -------------------- Editable program config -------------------- */
+
+// What's stored in Dexie under user_program_config. Straight JSON of the
+// three mutable arrays. Bumping shape here is a manual migration but the
+// program is small so a re-save is trivial.
+export interface UserProgramConfig {
+  lifts: LiftDay[]
+  cardioSchedule: Record<number, CardioSlot | undefined>
+  program: DayPlan[]
+}
+
+// Snapshot for the editor to load and mutate as a working copy.
+export function getUserProgramConfig(): UserProgramConfig {
+  return {
+    lifts: LIFTS.map((l) => ({ ...l })),
+    cardioSchedule: { ...CARDIO_SCHEDULE },
+    program: PROGRAM.map((d) => ({
+      ...d,
+      slots: d.slots.map((s) => ({ ...s, alternatives: [...s.alternatives] })),
+    })),
+  }
+}
+
+// Read settings on app boot and mirror into the live arrays. Must run
+// before any component tries to render off LIFTS/PROGRAM (main.tsx awaits
+// this before ReactDOM.createRoot renders).
+export async function loadUserProgram(): Promise<void> {
+  const cfg = await getSetting<UserProgramConfig>(CONFIG_KEY)
+  if (!cfg) return
+  mutateInPlace(cfg)
+}
+
+// Write settings, mirror to the live arrays, reinstall the templates so
+// runTemplate picks up the new exercises, then reload the app so every
+// consumer picks up the fresh schedule cleanly.
+export async function saveUserProgram(cfg: UserProgramConfig): Promise<void> {
+  await setSetting(CONFIG_KEY, cfg)
+  mutateInPlace(cfg)
+  // Reinstall templates using the new PROGRAM.
+  await installUserProgram()
+  // A reload guarantees any module-cached views of LIFTS / CARDIO_SCHEDULE
+  // (calendar tag maps, dial defaults) re-evaluate cleanly.
+  window.location.reload()
+}
+
+function mutateInPlace(cfg: UserProgramConfig): void {
+  // LIFTS
+  LIFTS.length = 0
+  LIFTS.push(...cfg.lifts)
+  // CARDIO_SCHEDULE — clear then reassign
+  for (const k of Object.keys(CARDIO_SCHEDULE)) {
+    delete CARDIO_SCHEDULE[Number(k)]
+  }
+  Object.assign(CARDIO_SCHEDULE, cfg.cardioSchedule)
+  // PROGRAM
+  PROGRAM.length = 0
+  PROGRAM.push(...cfg.program)
 }

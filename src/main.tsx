@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { GoogleOAuthProvider } from '@react-oauth/google'
 import './index.css'
 import App from './App.tsx'
+import { loadUserProgram } from './lib/userProgram'
 
 // Apply persisted theme before React mounts (prevents flash).
 if (localStorage.getItem('lifeos:theme') === 'light') {
@@ -16,13 +17,18 @@ if (!googleClientId) {
   )
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <GoogleOAuthProvider clientId={googleClientId}>
-      <App />
-    </GoogleOAuthProvider>
-  </StrictMode>,
-)
+// Mirror any customized program from Dexie into the module-level LIFTS /
+// CARDIO_SCHEDULE / PROGRAM arrays before React mounts, so calendars +
+// dial + habit scheduling all read the correct values on first paint.
+loadUserProgram().finally(() => {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <GoogleOAuthProvider clientId={googleClientId}>
+        <App />
+      </GoogleOAuthProvider>
+    </StrictMode>,
+  )
+})
 
 // Register the shell service worker (production only — dev uses HMR).
 if ('serviceWorker' in navigator && import.meta.env.PROD) {

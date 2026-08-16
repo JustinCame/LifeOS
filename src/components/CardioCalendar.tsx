@@ -2,15 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import type { CardioSession } from "../db/types";
 import { CARDIO_SCHEDULE } from "../lib/userProgram";
 
-// dow → 2-letter tag for the scheduled cardio kind, if any.
-const CARDIO_TAG: Record<number, string | undefined> = (() => {
+// Built at render time so program edits don't leave a stale snapshot.
+function buildCardioTag(): Record<number, string | undefined> {
   const m: Record<number, string | undefined> = {};
   for (const [dow, slot] of Object.entries(CARDIO_SCHEDULE)) {
     if (!slot) continue;
     m[Number(dow)] = slot.key === "hiit" ? "HIT" : "Z2";
   }
   return m;
-})();
+}
 
 interface Props {
   sessions: CardioSession[];
@@ -95,6 +95,9 @@ export default function CardioCalendar({ sessions }: Props) {
 
   const atCurrent =
     year === today0.getFullYear() && month === today0.getMonth();
+
+  const CARDIO_TAG = useMemo(() => buildCardioTag(), []);
+
   const selectedCell =
     selected !== null ? grid.find((c) => c && c.date === selected) ?? null : null;
 
