@@ -10,7 +10,10 @@ import {
   type CalEvent,
 } from "../lib/calendar";
 import { tagByKey } from "../lib/dailyLog";
+import type { Period } from "../lib/stats";
 import EventEditorSheet from "../components/EventEditorSheet";
+import StatWheelCard from "../components/StatWheelCard";
+import StatDetailScreen from "./StatDetailScreen";
 
 function startOfDay(d: Date | number): number {
   const dt = typeof d === "number" ? new Date(d) : d;
@@ -50,6 +53,7 @@ export default function Calendar() {
   const [error, setError] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [statDetail, setStatDetail] = useState<Period | null>(null);
 
   useEffect(() => {
     if (!accessToken) {
@@ -282,6 +286,13 @@ export default function Calendar() {
             </Card>
           </Section>
 
+          {/* Stat wheel — persona/social stat tracker derived from the
+              "What did you do today?" tags. Above the + Add event button
+              per the design. */}
+          <div className="mb-3">
+            <StatWheelCard onOpenDetail={(p) => setStatDetail(p)} />
+          </div>
+
           {isAuthed && (
             <button
               onClick={() => setEditorOpen(true)}
@@ -348,6 +359,13 @@ export default function Calendar() {
           initialDate={selected}
           onClose={() => setEditorOpen(false)}
           onCreated={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {statDetail && (
+        <StatDetailScreen
+          initialPeriod={statDetail}
+          onClose={() => setStatDetail(null)}
         />
       )}
     </div>
