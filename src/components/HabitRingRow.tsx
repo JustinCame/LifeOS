@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db";
 import type { Habit, HabitEntry } from "../db/types";
 import {
+  isPausedNow,
   isScheduledToday,
   progressOf,
   startOfDay,
@@ -22,8 +23,15 @@ export default function HabitRingRow({ onOpenHabits }: Props) {
     () => habits.filter((h) => !h.archivedAt),
     [habits],
   );
-  const scheduled = useMemo(
-    () => active.filter((h) => isScheduledToday(h)),
+  // Paused habits still appear in the row (with the pause outline) so the
+  // user remembers they exist, but they don't count toward "X/Y today" —
+  // the day is treated as rest while paused.
+  const shownToday = useMemo(
+    () => active.filter((h) => isScheduledToday(h) || isPausedNow(h)),
+    [active],
+  );
+  const countableToday = useMemo(
+    () => active.filter((h) => isScheduledToday(h) && !isPausedNow(h)),
     [active],
   );
 
@@ -40,7 +48,7 @@ export default function HabitRingRow({ onOpenHabits }: Props) {
     return m;
   }, [todaysEntries]);
 
-  const doneCount = scheduled.filter(
+  const doneCount = countableToday.filter(
     (h) => progressOf(h, byHabitId.get(h.id!)) >= 1,
   ).length;
 
@@ -48,8 +56,8 @@ export default function HabitRingRow({ onOpenHabits }: Props) {
     <Section
       title="Habits"
       meta={
-        scheduled.length > 0
-          ? `${doneCount}/${scheduled.length} today`
+        countableToday.length > 0
+          ? `${doneCount}/${countableToday.length} today`
           : ""
       }
     >
@@ -58,12 +66,12 @@ export default function HabitRingRow({ onOpenHabits }: Props) {
         className="flex w-full items-center gap-3 rounded-[16px] border border-border bg-surface px-3.5 py-3.5 text-left hover:border-border-strong active:scale-[0.99]"
       >
         <div className="flex flex-1 items-center gap-3">
-          {scheduled.length === 0 ? (
+          {shownToday.length === 0 ? (
             <div className="font-mono text-[11px] text-subtle">
               No habits scheduled today. Tap to add or manage.
             </div>
           ) : (
-            scheduled.map((h) => (
+            shownToday.map((h) => (
               <SmallRing
                 key={h.id}
                 habit={h}
@@ -85,7 +93,8 @@ function SmallRing({
   habit: Habit;
   entry: HabitEntry | undefined;
 }) {
-  const p = progressOf(habit, entry);
+  const paused = isPausedNow(habit);
+  const p = paused ? 0 : progressOf(habit, entry);
   const size = 34;
   const stroke = 3;
   const r = (size - stroke) / 2;
@@ -96,7 +105,17 @@ function SmallRing({
       : "var(--color-accent)";
   const dashArray = `${c * p} ${c}`;
   return (
-    <div className="relative" style={{ width: size, height: size }}>
+    <div
+      className="relative"
+      style={{
+        width: size,
+        height: size,
+        // When paused, wrap the ring in a pause-colored outline so it reads
+        // as "on hold" at a glance.
+        borderRadius: paused ? "50%" : undefined,
+        boxShadow: paused ? "0 0 0 1.5px var(--color-pause)" : undefined,
+      }}
+    >
       <svg width={size} height={size} className="-rotate-90">
         <circle
           cx={size / 2}

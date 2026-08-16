@@ -13,6 +13,10 @@
   --color-accent: oklch(0.72 0.14 145);
   --color-accent-soft: oklch(0.72 0.14 145 / 0.14);
   --color-accent-fg: oklch(0.86 0.12 145);
+  /* Pause color — warm amber, hue-distinct from accent green so paused days
+     and ring outlines read as "on hold" rather than "in progress". */
+  --color-pause: oklch(0.72 0.13 70);
+  --color-pause-soft: oklch(0.72 0.13 70 / 0.20);
 
   /* type */
   --font-sans: -apple-system, "SF Pro Text", system-ui, sans-serif;
@@ -47,6 +51,8 @@
   --color-accent: oklch(0.55 0.13 145);
   --color-accent-soft: oklch(0.55 0.13 145 / 0.10);
   --color-accent-fg: oklch(0.45 0.13 145);
+  --color-pause: oklch(0.60 0.14 70);
+  --color-pause-soft: oklch(0.60 0.14 70 / 0.14);
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.03), 0 8px 22px rgb(20 20 18 / 0.06);
 }
 

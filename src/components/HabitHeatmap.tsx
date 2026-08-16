@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import type { Habit, HabitEntry } from "../db/types";
-import { isScheduledOn, progressOf, startOfDay } from "../lib/habits";
+import {
+  isDayPaused,
+  isScheduledOn,
+  progressOf,
+  startOfDay,
+} from "../lib/habits";
 
 // Days before the habit existed are rendered as rest cells (transparent +
 // border), not as "kept" cells — mainly so brand-new avoid habits don't paint
@@ -40,16 +45,18 @@ export default function HabitHeatmap({
     const arr: {
       day: number;
       scheduled: boolean;
+      paused: boolean;
       progress: number;
       isToday: boolean;
     }[] = [];
     for (let i = days - 1; i >= 0; i--) {
       const day = today - i * 86_400_000;
-      // Pre-existence days render as rest cells regardless of habit kind.
-      const scheduled = day >= habitStart && isScheduledOn(habit, day);
+      const preExists = day < habitStart;
+      const paused = !preExists && isDayPaused(habit, day);
+      const scheduled = !preExists && !paused && isScheduledOn(habit, day);
       const entry = byDay.get(day);
       const progress = scheduled ? progressOf(habit, entry) : 0;
-      arr.push({ day, scheduled, progress, isToday: day === today });
+      arr.push({ day, scheduled, paused, progress, isToday: day === today });
     }
     return arr;
   }, [days, today, byDay, habit, habitStart]);
@@ -63,20 +70,27 @@ export default function HabitHeatmap({
       }}
     >
       {cells.map((c, i) => {
-        const bg = c.scheduled
-          ? c.progress <= 0
-            ? "var(--color-surface-2)"
-            : `color-mix(in oklab, var(--color-accent) ${Math.round(35 + c.progress * 65)}%, transparent)`
-          : "transparent";
+        const bg = c.paused
+          ? "var(--color-pause-soft)"
+          : c.scheduled
+            ? c.progress <= 0
+              ? "var(--color-surface-2)"
+              : `color-mix(in oklab, var(--color-accent) ${Math.round(35 + c.progress * 65)}%, transparent)`
+            : "transparent";
+        const todayShadow = c.paused
+          ? "0 0 0 1.5px var(--color-pause), 0 0 0 2.5px var(--color-bg)"
+          : "0 0 0 1.5px var(--color-accent-soft), 0 0 0 2.5px var(--color-bg)";
         const style: React.CSSProperties = {
           width: cell,
           height: cell,
           background: bg,
           boxShadow: c.isToday
-            ? "0 0 0 1.5px var(--color-accent-soft), 0 0 0 2.5px var(--color-bg)"
-            : c.scheduled
-              ? "none"
-              : "inset 0 0 0 1px var(--color-border)",
+            ? todayShadow
+            : c.paused
+              ? "inset 0 0 0 1px var(--color-pause)"
+              : c.scheduled
+                ? "none"
+                : "inset 0 0 0 1px var(--color-border)",
         };
         return <div key={i} className="rounded-[2px]" style={style} />;
       })}

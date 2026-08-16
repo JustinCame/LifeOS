@@ -260,6 +260,11 @@ export interface Habit {
   // When set, this habit sorts above unpinned habits on the Habits screen.
   // Timestamp so multiple pinned habits order by most-recently-pinned first.
   pinnedAt?: number
+  // Vacation / hiatus ranges. Days that fall in any range are treated as
+  // rest days by streak + consistency (they don't count for or against you)
+  // and rendered in the pause color on the heatmap. The last range having
+  // no `end` means the habit is currently paused.
+  pauseRanges?: { start: number; end?: number }[]
 }
 
 // One entry per habit per day — replaces the old `history: number[]` array on

@@ -5,7 +5,10 @@ import {
   archiveHabit,
   defaultScheduleFor,
   deleteHabit,
+  isPausedNow,
+  pauseHabit,
   pinHabit,
+  resumeHabit,
   unarchiveHabit,
   unpinHabit,
   updateHabit,
@@ -370,6 +373,17 @@ export default function HabitSheet({ habit, onClose }: Props) {
                 className="w-full rounded-[10px] border border-border bg-surface py-2 text-xs text-subtle hover:border-border-strong hover:text-fg"
               >
                 {habit.pinnedAt ? "Unpin" : "Pin to top"}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (isPausedNow(habit)) await resumeHabit(habit.id!);
+                  else await pauseHabit(habit.id!);
+                  close();
+                }}
+                className="w-full rounded-[10px] border border-border bg-surface py-2 text-xs text-subtle hover:border-border-strong hover:text-fg"
+              >
+                {isPausedNow(habit) ? "Resume habit" : "Pause habit (vacation)"}
               </button>
               <button
                 type="button"

@@ -142,7 +142,9 @@ export function computeStreak(habit: Habit, entries: HabitEntry[]): number {
   let day = startOfDay()
   for (let i = 0; i < 365 * 5; i++) {
     if (day < firstDay) break
-    if (!isScheduledOn(habit, day)) {
+    // Paused days behave like rest days: skip without breaking the streak,
+    // don't add to the count.
+    if (isDayPaused(habit, day) || !isScheduledOn(habit, day)) {
       day -= DAY_MS
       continue
     }
@@ -192,7 +194,7 @@ export function consistency(
   let day = startOfDay()
   for (let i = 0; i < days; i++) {
     if (day < firstDay) break
-    if (isScheduledOn(habit, day)) {
+    if (!isDayPaused(habit, day) && isScheduledOn(habit, day)) {
       scheduled++
       const e = byDay.get(day)
       if (progressOf(habit, e) >= 1) hit++
@@ -238,7 +240,7 @@ export function scheduledHitCounts(
   let day = startOfDay()
   for (let i = 0; i < days; i++) {
     if (day < firstDay) break
-    if (isScheduledOn(habit, day)) {
+    if (!isDayPaused(habit, day) && isScheduledOn(habit, day)) {
       scheduled++
       const e = byDay.get(day)
       if (progressOf(habit, e) >= 1) hit++
@@ -293,6 +295,52 @@ export async function pinHabit(id: number): Promise<void> {
 
 export async function unpinHabit(id: number): Promise<void> {
   await db.habits.update(id, { pinnedAt: undefined })
+}
+
+// Pause a habit "starting today". If already paused, no-op — we don't open
+// a second range on top of an existing open one.
+export async function pauseHabit(id: number): Promise<void> {
+  const habit = await db.habits.get(id)
+  if (!habit) return
+  const ranges = [...(habit.pauseRanges ?? [])]
+  const last = ranges[ranges.length - 1]
+  if (last && last.end === undefined) return
+  ranges.push({ start: startOfDay() })
+  await db.habits.update(id, { pauseRanges: ranges })
+  await recomputeStreaks(habit)
+}
+
+// Resume — close out the open range with today's start-of-day. Days from
+// resume onward count again.
+export async function resumeHabit(id: number): Promise<void> {
+  const habit = await db.habits.get(id)
+  if (!habit) return
+  const ranges = [...(habit.pauseRanges ?? [])]
+  const last = ranges[ranges.length - 1]
+  if (!last || last.end !== undefined) return
+  last.end = startOfDay()
+  await db.habits.update(id, { pauseRanges: ranges })
+  await recomputeStreaks(habit)
+}
+
+export function isPausedNow(habit: Habit): boolean {
+  const last = habit.pauseRanges?.[habit.pauseRanges.length - 1]
+  return !!last && last.end === undefined
+}
+
+// A day is paused if it falls in any pause range. Open ranges (no `end`)
+// cover everything from `start` to today.
+export function isDayPaused(habit: Habit, day: number): boolean {
+  const ranges = habit.pauseRanges
+  if (!ranges || ranges.length === 0) return false
+  const d = startOfDay(day)
+  for (const r of ranges) {
+    const start = startOfDay(r.start)
+    if (d < start) continue
+    if (r.end === undefined) return true
+    if (d < startOfDay(r.end)) return true
+  }
+  return false
 }
 
 // Wipes the habit AND its history — used by the "Delete habit and history"
@@ -419,7 +467,7 @@ export function computeLongestStreak(
   let longest = 0
   let current = 0
   for (let day = firstDay; day <= today; day += DAY_MS) {
-    if (!isScheduledOn(habit, day)) continue
+    if (isDayPaused(habit, day) || !isScheduledOn(habit, day)) continue
     const e = byDay.get(day)
     if (progressOf(habit, e) >= 1) {
       current++
