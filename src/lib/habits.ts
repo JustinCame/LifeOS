@@ -1,6 +1,7 @@
 import { db } from '../db'
 import type { Habit, HabitEntry, HabitKind, HabitSchedule } from '../db/types'
 import { setDailyValue } from './health'
+import { LIFTS } from './userProgram'
 
 /* -------------------- Date helpers -------------------- */
 
@@ -42,6 +43,13 @@ export function progressOf(habit: Habit, entry: HabitEntry | undefined): number 
 }
 
 export function isScheduledOn(habit: Habit, ts: number): boolean {
+  // Workout-linked habits derive their schedule from the user's program —
+  // only actual lift days count. Rest days aren't "misses" against the
+  // streak or the consistency percentage.
+  if (habit.linkedMetric === 'workout') {
+    const dow = new Date(ts).getDay()
+    return LIFTS.some((l) => l.dow === dow)
+  }
   const s = habit.schedule
   if (s.mode === 'daily') return true
   if (s.mode === 'weekdays') return s.days.includes(new Date(ts).getDay())
@@ -55,6 +63,11 @@ export function isScheduledToday(habit: Habit): boolean {
 
 // Human labels for the header meta lines and habit cards.
 export function scheduleLabel(habit: Habit): string {
+  if (habit.linkedMetric === 'workout') {
+    const short = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+    const days = LIFTS.map((l) => l.dow).sort()
+    return days.map((d) => short[d]).join(' ')
+  }
   const s = habit.schedule
   if (s.mode === 'daily') return 'every day'
   if (s.mode === 'perWeek') return `${s.perWeek}× per week`

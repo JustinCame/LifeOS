@@ -278,78 +278,86 @@ export default function HabitSheet({ habit, onClose }: Props) {
             </div>
           )}
 
-          <div>
-            <div className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted">
-              Repeats
+          {linked ? (
+            <div className="rounded-[10px] border border-border bg-surface px-3 py-2 font-mono text-[11px] text-muted">
+              {linkedMetric === "workout"
+                ? "Schedule follows your program — only lift days count."
+                : "Runs every day — the linked log drives progress."}
             </div>
-            <div className="mb-2 flex gap-2">
-              {(["daily", "weekdays", "perWeek"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setSchedule(defaultScheduleFor(m))}
-                  className={`flex-1 rounded-[8px] px-2 py-1.5 text-xs font-medium ${
-                    schedule.mode === m
-                      ? "bg-accent-soft text-accent-fg"
-                      : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
-                  }`}
-                >
-                  {m === "daily" ? "Daily" : m === "weekdays" ? "Weekdays" : "Per week"}
-                </button>
-              ))}
+          ) : (
+            <div>
+              <div className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted">
+                Repeats
+              </div>
+              <div className="mb-2 flex gap-2">
+                {(["daily", "weekdays", "perWeek"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setSchedule(defaultScheduleFor(m))}
+                    className={`flex-1 rounded-[8px] px-2 py-1.5 text-xs font-medium ${
+                      schedule.mode === m
+                        ? "bg-accent-soft text-accent-fg"
+                        : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
+                    }`}
+                  >
+                    {m === "daily" ? "Daily" : m === "weekdays" ? "Weekdays" : "Per week"}
+                  </button>
+                ))}
+              </div>
+
+              {schedule.mode === "weekdays" && (
+                <div className="grid grid-cols-7 gap-1.5">
+                  {DAY_SHORT.map((d, i) => {
+                    const on = schedule.days.includes(i);
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          const next = on
+                            ? schedule.days.filter((x) => x !== i)
+                            : [...schedule.days, i];
+                          setSchedule({ mode: "weekdays", days: next });
+                        }}
+                        className={`grid h-9 place-items-center rounded-[8px] text-xs font-medium ${
+                          on
+                            ? "bg-accent text-[#0a160d]"
+                            : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
+                        }`}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {schedule.mode === "perWeek" && (
+                <div className="grid grid-cols-7 gap-1.5">
+                  {[1, 2, 3, 4, 5, 6, 7].map((n) => {
+                    const on = schedule.perWeek === n;
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() =>
+                          setSchedule({ mode: "perWeek", perWeek: n })
+                        }
+                        className={`grid h-9 place-items-center rounded-[8px] font-mono text-xs font-medium ${
+                          on
+                            ? "bg-accent text-[#0a160d]"
+                            : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-
-            {schedule.mode === "weekdays" && (
-              <div className="grid grid-cols-7 gap-1.5">
-                {DAY_SHORT.map((d, i) => {
-                  const on = schedule.days.includes(i);
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => {
-                        const next = on
-                          ? schedule.days.filter((x) => x !== i)
-                          : [...schedule.days, i];
-                        setSchedule({ mode: "weekdays", days: next });
-                      }}
-                      className={`grid h-9 place-items-center rounded-[8px] text-xs font-medium ${
-                        on
-                          ? "bg-accent text-[#0a160d]"
-                          : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
-                      }`}
-                    >
-                      {d}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {schedule.mode === "perWeek" && (
-              <div className="grid grid-cols-7 gap-1.5">
-                {[1, 2, 3, 4, 5, 6, 7].map((n) => {
-                  const on = schedule.perWeek === n;
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() =>
-                        setSchedule({ mode: "perWeek", perWeek: n })
-                      }
-                      className={`grid h-9 place-items-center rounded-[8px] font-mono text-xs font-medium ${
-                        on
-                          ? "bg-accent text-[#0a160d]"
-                          : "border border-border bg-bg text-subtle hover:border-border-strong hover:text-fg"
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          )}
 
           <button
             type="submit"
