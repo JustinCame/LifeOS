@@ -15,6 +15,7 @@ import {
 } from "../lib/fitness";
 import SwapSheet from "./SwapSheet";
 import RestTimer from "./RestTimer";
+import ExerciseDemo from "./ExerciseDemo";
 
 interface Props {
   workoutId: number;
@@ -257,6 +258,7 @@ function ExerciseCard({
 }) {
   const allDone =
     exercise.sets.length > 0 && exercise.sets.every((s) => isSetCompleted(s));
+  const [demoOpen, setDemoOpen] = useState(false);
 
   const meta = [];
   if (exercise.targetSets) {
@@ -304,13 +306,23 @@ function ExerciseCard({
             </div>
           )}
         </div>
-        <button
-          onClick={onSwap}
-          className="flex-shrink-0 rounded-[8px] border border-border bg-bg px-2.5 py-1 text-xs text-subtle hover:border-border-strong hover:text-fg"
-        >
-          ⇄ Swap
-        </button>
+        <div className="flex flex-shrink-0 items-center gap-1.5">
+          <button
+            onClick={() => setDemoOpen((v) => !v)}
+            className="rounded-[8px] border border-border bg-bg px-2.5 py-1 text-xs text-subtle hover:border-border-strong hover:text-fg"
+          >
+            {demoOpen ? "▾ How to" : "▸ How to"}
+          </button>
+          <button
+            onClick={onSwap}
+            className="rounded-[8px] border border-border bg-bg px-2.5 py-1 text-xs text-subtle hover:border-border-strong hover:text-fg"
+          >
+            ⇄ Swap
+          </button>
+        </div>
       </div>
+
+      {demoOpen && <ExerciseDemo exerciseName={exercise.exerciseName} />}
 
       <div className="grid grid-cols-[24px_1fr_1fr_1fr_28px_28px] items-center gap-2 border-t border-border bg-surface-2/40 px-3.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-subtle">
         <span>set</span>
