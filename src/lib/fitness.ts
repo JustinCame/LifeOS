@@ -534,6 +534,9 @@ export async function runTemplate(id: number): Promise<number> {
         ...(ex.repLow !== undefined ? { repLow: ex.repLow } : {}),
         ...(ex.repHigh !== undefined ? { repHigh: ex.repHigh } : {}),
         ...(ex.notes ? { notes: ex.notes } : {}),
+        ...(ex.alternatives && ex.alternatives.length > 0
+          ? { alternatives: ex.alternatives }
+          : {}),
       }
     }),
     startedAt: now,

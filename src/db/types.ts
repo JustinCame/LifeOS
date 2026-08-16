@@ -49,6 +49,11 @@ export interface WorkoutExercise {
   targetSets?: number
   repLow?: number
   repHigh?: number
+  // Alternative exercise names for the "Swap" affordance in the live
+  // session. Carried through from the template.
+  alternatives?: string[]
+  // Original name if this slot was swapped mid-session.
+  swappedFrom?: string
 }
 
 export interface Workout {
@@ -98,6 +103,7 @@ export interface WorkoutTemplateExercise {
   repHigh?: number
   restSec?: number
   notes?: string
+  alternatives?: string[]
 }
 
 // A reusable workout template — a name + the list of exercises that belong to

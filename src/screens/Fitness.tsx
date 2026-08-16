@@ -30,6 +30,7 @@ import ExportSheet from "../components/ExportSheet";
 import StartDial from "../components/StartDial";
 import { exportFitnessText } from "../lib/exports";
 import {
+  ensureUserProgramInstalled,
   startOfWeekMon,
   workoutsThisWeek,
   type LiftDay,
@@ -38,6 +39,7 @@ import {
 export default function Fitness() {
   useEffect(() => {
     ensureStarterLibrary().catch(console.error);
+    ensureUserProgramInstalled().catch(console.error);
   }, []);
 
   const allWorkouts =
