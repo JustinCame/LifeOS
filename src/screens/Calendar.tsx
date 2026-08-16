@@ -1,14 +1,38 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Card, Section } from "../components/primitives";
 import { db } from "../db";
+import type { DailyLog } from "../db/types";
 import {
   deleteEvent,
   listEventsForRange,
   formatEventTime,
   type CalEvent,
 } from "../lib/calendar";
+import { tagByKey } from "../lib/dailyLog";
 import EventEditorSheet from "../components/EventEditorSheet";
+
+function startOfDay(d: Date | number): number {
+  const dt = typeof d === "number" ? new Date(d) : d;
+  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+}
+
+// Build the cell background from a list of tag colors:
+//   0 tags  → transparent (or surface-2 for a text-only journal entry)
+//   1 tag   → solid color
+//   2+ tags → vertical hard-edged stripes so each color is distinct
+function fillFromColors(colors: string[], hasLog: boolean): string {
+  if (colors.length === 0) return hasLog ? "var(--color-surface-2)" : "transparent";
+  if (colors.length === 1) return colors[0];
+  const step = 100 / colors.length;
+  const stops: string[] = [];
+  colors.forEach((c, i) => {
+    const s = (i * step).toFixed(2);
+    const e = ((i + 1) * step).toFixed(2);
+    stops.push(`${c} ${s}%`, `${c} ${e}%`);
+  });
+  return `linear-gradient(90deg, ${stops.join(", ")})`;
+}
 
 export default function Calendar() {
   const authSetting = useLiveQuery(() => db.settings.get("google_auth"));
@@ -74,20 +98,50 @@ export default function Calendar() {
     cursor.getMonth() + 1,
     0,
   ).getDate();
+  const monthStart = firstDay.getTime();
+  const monthEnd = new Date(
+    cursor.getFullYear(),
+    cursor.getMonth(),
+    daysInMonth,
+  ).getTime();
 
-  type Cell = { date: Date | null; hasEvents: boolean };
+  // Journal entries (from the "What did you do today?" prompt) for the
+  // visible month. Same date key convention as DailyLogCalendar.
+  const monthLogs = useLiveQuery(
+    () =>
+      db.daily_logs
+        .where("date")
+        .between(monthStart, monthEnd, true, true)
+        .toArray(),
+    [monthStart, monthEnd],
+  ) ?? [];
+
+  const logByDay = useMemo(() => {
+    const m = new Map<number, DailyLog>();
+    for (const l of monthLogs) m.set(startOfDay(l.date), l);
+    return m;
+  }, [monthLogs]);
+
+  type Cell = {
+    date: Date | null;
+    hasEvents: boolean;
+    log?: DailyLog;
+  };
   const cells: Cell[] = [];
-  for (let i = 0; i < firstWeekday; i++) cells.push({ date: null, hasEvents: false });
+  for (let i = 0; i < firstWeekday; i++)
+    cells.push({ date: null, hasEvents: false });
   for (let d = 1; d <= daysInMonth; d++) {
     const date = new Date(cursor.getFullYear(), cursor.getMonth(), d);
     const hasEvents = events.some((e) => sameDay(e.start, date));
-    cells.push({ date, hasEvents });
+    cells.push({ date, hasEvents, log: logByDay.get(date.getTime()) });
   }
-  while (cells.length % 7 !== 0) cells.push({ date: null, hasEvents: false });
+  while (cells.length % 7 !== 0)
+    cells.push({ date: null, hasEvents: false });
 
   const eventsOfSelected = events
     .filter((e) => sameDay(e.start, selected))
     .sort((a, b) => a.start.getTime() - b.start.getTime());
+  const selectedLog = logByDay.get(startOfDay(selected));
 
   const selectedTitle = selected.toLocaleDateString(undefined, {
     weekday: "long",
@@ -150,21 +204,41 @@ export default function Calendar() {
               if (!cell.date) return <div key={i} className="h-9" />;
               const isToday = sameDay(cell.date, today);
               const isSelected = sameDay(cell.date, selected);
+              const tagColors =
+                cell.log?.tags
+                  .map((k) => tagByKey(k)?.color)
+                  .filter((c): c is string => !!c) ?? [];
+              const bg = fillFromColors(tagColors, !!cell.log);
+              const hasFill = tagColors.length > 0;
+              // Selected + today use outline instead of solid fill so tag
+              // colors stay visible.
+              const shadow = isSelected
+                ? "inset 0 0 0 1.5px var(--color-fg)"
+                : isToday
+                  ? "inset 0 0 0 1.5px var(--color-accent)"
+                  : "none";
               return (
                 <button
                   key={i}
                   onClick={() => setSelected(cell.date!)}
-                  className={`relative grid h-9 place-items-center rounded-[8px] text-sm transition ${
-                    isSelected
-                      ? "bg-accent font-medium text-[#0a160d]"
-                      : isToday
-                      ? "border border-accent text-fg"
-                      : "text-fg hover:bg-surface-2"
-                  }`}
+                  className="relative grid h-9 place-items-center rounded-[8px] text-sm transition hover:brightness-110"
+                  style={{ background: bg, boxShadow: shadow }}
                 >
-                  {cell.date.getDate()}
+                  <span
+                    className={`${
+                      hasFill
+                        ? "text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]"
+                        : "text-fg"
+                    }`}
+                  >
+                    {cell.date.getDate()}
+                  </span>
                   {cell.hasEvents && !isSelected && (
-                    <span className="absolute bottom-1 h-1 w-1 rounded-full bg-accent" />
+                    <span
+                      className={`absolute bottom-1 h-1 w-1 rounded-full ${
+                        hasFill ? "bg-white" : "bg-accent"
+                      }`}
+                    />
                   )}
                 </button>
               );
@@ -219,6 +293,52 @@ export default function Calendar() {
                 day: "numeric",
               })}
             </button>
+          )}
+
+          {/* Journal (from Today's "What did you do today?" prompt). Only
+              renders when this day has an entry — no empty state. */}
+          {selectedLog && (
+            <div className="mb-3">
+              <Section
+                title="Journal"
+                meta={
+                  selectedLog.tags.length > 0
+                    ? `${selectedLog.tags.length} ${selectedLog.tags.length === 1 ? "tag" : "tags"}`
+                    : ""
+                }
+              >
+                <Card>
+                  <div className="px-3.5 py-3">
+                    {selectedLog.tags.length > 0 && (
+                      <div className="mb-2 flex flex-wrap gap-1.5">
+                        {selectedLog.tags.map((k) => {
+                          const t = tagByKey(k);
+                          if (!t) return null;
+                          return (
+                            <span
+                              key={k}
+                              className="rounded-[5px] px-1.5 py-0.5 text-[10px] font-medium text-white"
+                              style={{ background: t.color }}
+                            >
+                              {t.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {selectedLog.text.trim() ? (
+                      <div className="whitespace-pre-wrap text-sm leading-snug text-fg">
+                        {selectedLog.text}
+                      </div>
+                    ) : (
+                      <div className="font-mono text-[11px] text-subtle">
+                        Tags only — no text written.
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              </Section>
+            </div>
           )}
         </div>
       </div>

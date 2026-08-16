@@ -6,7 +6,6 @@ import type { Note } from "../db/types";
 import NoteEditorSheet, {
   type NoteTarget,
 } from "../components/NoteEditorSheet";
-import DailyLogCalendar from "../components/DailyLogCalendar";
 
 export default function Notes() {
   const notes =
@@ -27,10 +26,6 @@ export default function Notes() {
             {notes.length} {notes.length === 1 ? "note" : "notes"}
           </div>
         </header>
-
-        <div className="mb-3">
-          <DailyLogCalendar />
-        </div>
 
         <button
           onClick={() => setTarget("new")}
