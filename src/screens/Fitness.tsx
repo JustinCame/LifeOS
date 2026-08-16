@@ -30,6 +30,7 @@ import ExportSheet from "../components/ExportSheet";
 import StartDial from "../components/StartDial";
 import FatigueCard from "../components/FatigueCard";
 import CardioCalendar from "../components/CardioCalendar";
+import ExercisesScreen from "./ExercisesScreen";
 import { computeFatigue } from "../lib/fatigue";
 import { exportFitnessText } from "../lib/exports";
 import {
@@ -68,6 +69,7 @@ export default function Fitness() {
   const [cardioLogOpen, setCardioLogOpen] = useState(false);
   const [cardioCalendarOpen, setCardioCalendarOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
+  const [exercisesOpen, setExercisesOpen] = useState(false);
 
   const cardioSessions =
     useLiveQuery(() =>
@@ -200,15 +202,15 @@ export default function Fitness() {
           </div>
         </div>
 
-        {/* Exercises link — full screen coming in the next step. */}
+        {/* Exercises link — opens the full-screen per-lift stats view. */}
         <button
-          disabled
-          className="mb-[22px] flex w-full items-center gap-3 rounded-[16px] border border-border bg-surface px-3.5 py-3 text-left opacity-70"
+          onClick={() => setExercisesOpen(true)}
+          className="mb-[22px] flex w-full items-center gap-3 rounded-[16px] border border-border bg-surface px-3.5 py-3 text-left hover:border-border-strong active:scale-[0.995]"
         >
           <div className="min-w-0 flex-1">
             <div className="text-[15px] leading-tight text-fg">Exercises</div>
             <div className="mt-0.5 font-mono text-[11px] text-muted">
-              maxes · weight trends · per-lift history (coming next)
+              maxes · weight trends · per-lift history
             </div>
           </div>
           <span className="text-subtle">›</span>
@@ -281,6 +283,10 @@ export default function Fitness() {
           />
         );
       })()}
+
+      {exercisesOpen && (
+        <ExercisesScreen onClose={() => setExercisesOpen(false)} />
+      )}
 
       {exportOpen && (
         <ExportSheet
