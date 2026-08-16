@@ -427,14 +427,14 @@ export default function WorkoutSheet({ workoutId, onClose, onSwitchWorkout }: Pr
                 {isActive ? (
                   <button
                     onClick={onDiscard}
-                    className="text-subtle hover:text-fg"
+                    className="rounded-[8px] border border-border bg-surface px-3 py-1.5 text-subtle hover:border-border-strong hover:text-fg"
                   >
                     Discard workout
                   </button>
                 ) : (
                   <button
                     onClick={onDelete}
-                    className="text-subtle hover:text-fg"
+                    className="rounded-[8px] border border-border bg-surface px-3 py-1.5 text-subtle hover:border-border-strong hover:text-fg"
                   >
                     Delete workout
                   </button>

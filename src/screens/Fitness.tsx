@@ -11,6 +11,7 @@ import type {
 import {
   cloneWorkout,
   countPRsInWorkout,
+  deleteWorkout,
   ensureStarterLibrary,
   formatDuration,
   runTemplate,
@@ -253,6 +254,15 @@ export default function Fitness() {
                         const id = await cloneWorkout(w.id!);
                         setOpenWorkoutId(id);
                       }}
+                      onDelete={async () => {
+                        if (
+                          confirm(
+                            `Delete "${w.name}" from ${new Date(w.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}? This can't be undone.`,
+                          )
+                        ) {
+                          await deleteWorkout(w.id!);
+                        }
+                      }}
                     />
                   ))}
                 </Card>
@@ -444,13 +454,14 @@ const XIcon = () => (
 /* -------------------- Workout row -------------------- */
 
 function WorkoutRow({
-  workout, allWorkouts, exerciseById, onClick, onClone,
+  workout, allWorkouts, exerciseById, onClick, onClone, onDelete,
 }: {
   workout: Workout;
   allWorkouts: Workout[];
   exerciseById: Map<number, Exercise>;
   onClick: () => void;
   onClone: () => void;
+  onDelete: () => void;
 }) {
   const date = new Date(workout.date);
   const dateStr = date.toLocaleDateString(undefined, {
@@ -515,16 +526,28 @@ function WorkoutRow({
           </div>
           <div className="font-mono text-xs text-muted">{reps} reps</div>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClone();
-          }}
-          className="rounded-[6px] border border-border bg-bg px-1.5 py-0.5 text-[10px] text-subtle hover:border-border-strong hover:text-fg"
-          aria-label="Repeat this workout"
-        >
-          Repeat
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onClone();
+            }}
+            className="rounded-[6px] border border-border bg-bg px-1.5 py-0.5 text-[10px] text-subtle hover:border-border-strong hover:text-fg"
+            aria-label="Repeat this workout"
+          >
+            Repeat
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="grid h-5 w-5 place-items-center rounded-[6px] text-subtle opacity-50 hover:bg-surface-2 hover:text-fg hover:opacity-100"
+            aria-label="Delete this workout"
+          >
+            <XIcon />
+          </button>
+        </div>
       </div>
     </div>
   );
