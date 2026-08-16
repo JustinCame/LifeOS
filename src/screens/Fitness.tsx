@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Card, Section } from "../components/primitives";
-import ActivityHeatmap from "../components/ActivityHeatmap";
+import WorkoutCalendar from "../components/WorkoutCalendar";
 import { db } from "../db";
 import type {
   CardioSession,
@@ -128,7 +128,11 @@ export default function Fitness() {
 
         {/* Heatmap */}
         <div className="mb-3">
-          <ActivityHeatmap workouts={allWorkouts} />
+          <WorkoutCalendar
+            workouts={completed}
+            cardioSessions={cardioSessions}
+            onOpenWorkout={(id) => setOpenWorkoutId(id)}
+          />
         </div>
 
         <button
