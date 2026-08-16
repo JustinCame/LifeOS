@@ -7,12 +7,10 @@ import type {
   CardioSession,
   Exercise,
   Workout,
-  WorkoutTemplate,
 } from "../db/types";
 import {
   cloneWorkout,
   countPRsInWorkout,
-  deleteTemplate,
   ensureStarterLibrary,
   formatDuration,
   runTemplate,
@@ -20,7 +18,6 @@ import {
   totalReps,
   totalVolume,
 } from "../lib/fitness";
-import { installPPLULProgram } from "../lib/pplul";
 import {
   CARDIO_LABELS,
   CARDIO_WEEKLY_TARGETS,
@@ -28,10 +25,15 @@ import {
   deleteCardioSession,
 } from "../lib/cardio";
 import WorkoutSheet from "../components/WorkoutSheet";
-import TemplateSheet, { type TemplateTarget } from "../components/TemplateSheet";
 import CardioSheet from "../components/CardioSheet";
 import ExportSheet from "../components/ExportSheet";
+import StartDial from "../components/StartDial";
 import { exportFitnessText } from "../lib/exports";
+import {
+  startOfWeekMon,
+  workoutsThisWeek,
+  type LiftDay,
+} from "../lib/userProgram";
 
 export default function Fitness() {
   useEffect(() => {
@@ -55,55 +57,47 @@ export default function Fitness() {
   }, [exercises]);
 
   const [openWorkoutId, setOpenWorkoutId] = useState<number | null>(null);
-  const [templateTarget, setTemplateTarget] = useState<TemplateTarget>(null);
   const [cardioOpen, setCardioOpen] = useState(false);
   const [cardioExpanded, setCardioExpanded] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-
-  const templates =
-    useLiveQuery(() =>
-      db.workout_templates.orderBy("createdAt").reverse().toArray(),
-    ) ?? [];
-  const pplulInstalled = templates.some((t) => t.name.startsWith("PPLUL"));
 
   const cardioSessions =
     useLiveQuery(() =>
       db.cardio_sessions.orderBy("date").reverse().toArray(),
     ) ?? [];
 
-  const onInstallPPLUL = async () => {
-    if (
-      pplulInstalled &&
-      !confirm(
-        "Reinstall the PPLUL program? This replaces the 5 PPLUL templates with the original program definition.",
-      )
-    ) {
-      return;
-    }
-    try {
-      await installPPLULProgram();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const startNew = async () => {
+  // Tap Start on the dial: resume active if any; else run the matching PPLUL
+  // template if one is installed; else fall back to an empty workout named
+  // after the lift (rest days log a blank workout).
+  const onStartFromDial = async (lift: LiftDay | null) => {
     if (active) {
       setOpenWorkoutId(active.id!);
       return;
     }
-    const id = await startWorkout();
-    setOpenWorkoutId(id);
-  };
-
-  const onRunTemplate = async (templateId: number) => {
     try {
-      const id = await runTemplate(templateId);
+      if (lift) {
+        const template = await db.workout_templates
+          .where("name")
+          .equals(lift.templateName)
+          .first();
+        if (template) {
+          const id = await runTemplate(template.id!);
+          setOpenWorkoutId(id);
+          return;
+        }
+      }
+      const id = await startWorkout(lift ? lift.name : "Workout");
       setOpenWorkoutId(id);
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     }
   };
+
+  const weeklyLiftProgress =
+    workoutsThisWeek(allWorkouts) / 5;
+  const weeklyCardioCount = cardioSessions.filter(
+    (c) => c.date >= startOfWeekMon(),
+  ).length;
 
   return (
     <div className="relative flex h-full flex-col bg-bg">
@@ -135,58 +129,12 @@ export default function Fitness() {
           />
         </div>
 
-        <button
-          onClick={startNew}
-          className={`mb-3 flex w-full items-center justify-center gap-2 rounded-[14px] px-4 py-3 text-sm font-medium active:scale-[0.99] ${
-            active
-              ? "border border-accent bg-accent-soft text-accent-fg"
-              : "bg-accent text-[#0a160d]"
-          }`}
-        >
-          {active ? "Resume Workout" : "+ Start a Workout"}
-        </button>
-
-        {/* Templates */}
-        <Section
-          title="Templates"
-          meta={templates.length > 0 ? `${templates.length}` : ""}
-        >
-          <Card>
-            {templates.length === 0 && (
-              <div className="px-3.5 py-3 text-sm text-muted">
-                No templates yet. Tap "+ New template" below to save a workout
-                shape you can run again.
-              </div>
-            )}
-            {templates.map((t) => (
-              <TemplateRow
-                key={t.id}
-                template={t}
-                onRun={() => onRunTemplate(t.id!)}
-                onEdit={() => setTemplateTarget(t.id!)}
-                onDelete={async () => {
-                  if (confirm(`Delete template "${t.name}"?`)) {
-                    await deleteTemplate(t.id!);
-                  }
-                }}
-              />
-            ))}
-            <button
-              onClick={() => setTemplateTarget("new")}
-              className="flex w-full items-center justify-center gap-2 border-t border-border px-3.5 py-2.5 text-sm font-medium text-accent-fg hover:bg-surface-2"
-            >
-              + New template
-            </button>
-            <button
-              onClick={onInstallPPLUL}
-              className="flex w-full items-center justify-center gap-2 border-t border-border px-3.5 py-2.5 text-sm font-medium text-accent-fg hover:bg-surface-2"
-            >
-              {pplulInstalled
-                ? "↻ Reinstall PPLUL program"
-                : "↓ Install PPLUL 5-day program"}
-            </button>
-          </Card>
-        </Section>
+        <StartDial
+          hasActiveWorkout={!!active}
+          weeklyLiftProgress={weeklyLiftProgress}
+          weeklyCardioCount={weeklyCardioCount}
+          onStartWorkout={onStartFromDial}
+        />
 
         {completed.length === 0 ? (
           <div className="mt-4 rounded-[16px] border border-dashed border-border bg-surface px-5 py-8 text-center text-sm text-muted">
@@ -256,13 +204,6 @@ export default function Fitness() {
           workoutId={openWorkoutId}
           onClose={() => setOpenWorkoutId(null)}
           onSwitchWorkout={(newId) => setOpenWorkoutId(newId)}
-        />
-      )}
-
-      {templateTarget !== null && (
-        <TemplateSheet
-          target={templateTarget}
-          onClose={() => setTemplateTarget(null)}
         />
       )}
 
@@ -381,45 +322,6 @@ function CardioRow({ session }: { session: CardioSession }) {
   );
 }
 
-function TemplateRow({
-  template, onRun, onEdit, onDelete,
-}: {
-  template: WorkoutTemplate;
-  onRun: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 border-t border-border px-3.5 py-2.5 first:border-t-0">
-      <button
-        onClick={onEdit}
-        className="min-w-0 flex-1 text-left"
-      >
-        <div className="truncate text-base leading-tight text-fg">
-          {template.name}
-        </div>
-        <div className="mt-0.5 font-mono text-[11px] text-muted">
-          {template.exercises.length}{" "}
-          {template.exercises.length === 1 ? "exercise" : "exercises"}
-          {template.useCount > 0 && ` · used ${template.useCount}×`}
-        </div>
-      </button>
-      <button
-        onClick={onRun}
-        className="rounded-[8px] bg-accent px-3 py-1.5 text-xs font-medium text-[#0a160d] active:scale-[0.98]"
-      >
-        Run
-      </button>
-      <button
-        onClick={onDelete}
-        aria-label="Delete template"
-        className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-[8px] text-subtle opacity-50 hover:bg-surface-2 hover:text-fg hover:opacity-100"
-      >
-        <XIcon />
-      </button>
-    </div>
-  );
-}
 
 const XIcon = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
