@@ -253,7 +253,9 @@ function summarizeCounts(c: Record<string, number>): string {
   if (c.meal_entries) parts.push(`${c.meal_entries} meal entries`);
   if (c.tasks) parts.push(`${c.tasks} tasks`);
   if (c.habits) parts.push(`${c.habits} habits`);
+  if (c.habit_entries) parts.push(`${c.habit_entries} habit entries`);
   if (c.health_logs) parts.push(`${c.health_logs} health logs`);
+  if (c.daily_logs) parts.push(`${c.daily_logs} daily logs`);
   if (c.chat_history) parts.push(`${c.chat_history} chat msgs`);
   return parts.length ? parts.join(", ") : "0 items";
 }
