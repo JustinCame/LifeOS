@@ -29,6 +29,8 @@ import WorkoutSession from "../components/WorkoutSession";
 import CardioSheet from "../components/CardioSheet";
 import ExportSheet from "../components/ExportSheet";
 import StartDial from "../components/StartDial";
+import FatigueCard from "../components/FatigueCard";
+import { computeFatigue } from "../lib/fatigue";
 import { exportFitnessText } from "../lib/exports";
 import {
   ensureUserProgramInstalled,
@@ -102,6 +104,11 @@ export default function Fitness() {
     (c) => c.date >= startOfWeekMon(),
   ).length;
 
+  const fatigue = useMemo(
+    () => computeFatigue(completed, exerciseById),
+    [completed, exerciseById],
+  );
+
   return (
     <div className="relative flex h-full flex-col bg-bg">
       <div className="flex-1 overflow-y-auto px-[18px] pb-[160px] pt-[60px] [&::-webkit-scrollbar]:hidden">
@@ -138,6 +145,8 @@ export default function Fitness() {
           weeklyCardioCount={weeklyCardioCount}
           onStartWorkout={onStartFromDial}
         />
+
+        <FatigueCard fatigue={fatigue} />
 
         {completed.length === 0 ? (
           <div className="mt-4 rounded-[16px] border border-dashed border-border bg-surface px-5 py-8 text-center text-sm text-muted">
