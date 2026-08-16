@@ -15,7 +15,7 @@ import {
 } from "../lib/fitness";
 import SwapSheet from "./SwapSheet";
 import RestTimer from "./RestTimer";
-import ExerciseDemo from "./ExerciseDemo";
+import ExerciseDemoScreen from "../screens/ExerciseDemoScreen";
 
 interface Props {
   workoutId: number;
@@ -42,6 +42,7 @@ export default function WorkoutSession({ workoutId, onClose }: Props) {
   };
 
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
+  const [demoIdx, setDemoIdx] = useState<number | null>(null);
   const [rest, setRest] = useState<{
     seconds: number;
     exerciseName: string;
@@ -202,6 +203,7 @@ export default function WorkoutSession({ workoutId, onClose }: Props) {
             key={exIdx}
             exercise={ex}
             onSwap={() => setSwapIdx(exIdx)}
+            onOpenDemo={() => setDemoIdx(exIdx)}
             onToggle={(setIdx) => onToggleSet(exIdx, setIdx)}
             onUpdate={(setIdx, patch) =>
               updateSet(workoutId, exIdx, setIdx, patch)
@@ -235,6 +237,13 @@ export default function WorkoutSession({ workoutId, onClose }: Props) {
           onClose={() => setRest(null)}
         />
       )}
+      {demoIdx !== null && (
+        <ExerciseDemoScreen
+          exerciseName={workout.exercises[demoIdx].exerciseName}
+          note={workout.exercises[demoIdx].notes}
+          onClose={() => setDemoIdx(null)}
+        />
+      )}
     </div>
   );
 }
@@ -244,6 +253,7 @@ export default function WorkoutSession({ workoutId, onClose }: Props) {
 function ExerciseCard({
   exercise,
   onSwap,
+  onOpenDemo,
   onToggle,
   onUpdate,
   onAddSet,
@@ -251,6 +261,7 @@ function ExerciseCard({
 }: {
   exercise: WorkoutExercise;
   onSwap: () => void;
+  onOpenDemo: () => void;
   onToggle: (setIdx: number) => void;
   onUpdate: (setIdx: number, patch: Partial<WorkoutSet>) => void;
   onAddSet: () => void;
@@ -258,7 +269,7 @@ function ExerciseCard({
 }) {
   const allDone =
     exercise.sets.length > 0 && exercise.sets.every((s) => isSetCompleted(s));
-  const [demoOpen, setDemoOpen] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
 
   const meta = [];
   if (exercise.targetSets) {
@@ -301,17 +312,26 @@ function ExerciseCard({
             )}
           </div>
           {exercise.notes && (
-            <div className="mt-1 font-mono text-[10px] leading-snug text-subtle">
+            <button
+              onClick={() => setTipOpen((v) => !v)}
+              className="mt-1 flex items-center gap-1 font-mono text-[10px] text-subtle hover:text-fg"
+            >
+              <span>{tipOpen ? "▾" : "▸"}</span>
+              <span>Tip</span>
+            </button>
+          )}
+          {tipOpen && exercise.notes && (
+            <div className="mt-1.5 rounded-[8px] border border-border bg-bg px-2.5 py-2 font-mono text-[10px] leading-snug text-muted">
               {exercise.notes}
             </div>
           )}
         </div>
         <div className="flex flex-shrink-0 items-center gap-1.5">
           <button
-            onClick={() => setDemoOpen((v) => !v)}
+            onClick={onOpenDemo}
             className="rounded-[8px] border border-border bg-bg px-2.5 py-1 text-xs text-subtle hover:border-border-strong hover:text-fg"
           >
-            {demoOpen ? "▾ How to" : "▸ How to"}
+            How to
           </button>
           <button
             onClick={onSwap}
@@ -321,8 +341,6 @@ function ExerciseCard({
           </button>
         </div>
       </div>
-
-      {demoOpen && <ExerciseDemo exerciseName={exercise.exerciseName} />}
 
       <div className="grid grid-cols-[24px_1fr_1fr_1fr_28px_28px] items-center gap-2 border-t border-border bg-surface-2/40 px-3.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-subtle">
         <span>set</span>
