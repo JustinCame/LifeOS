@@ -23,13 +23,11 @@ export default function HabitRingRow({ onOpenHabits }: Props) {
     () => habits.filter((h) => !h.archivedAt),
     [habits],
   );
-  // Paused habits still appear in the row (with the pause outline) so the
-  // user remembers they exist, but they don't count toward "X/Y today" —
-  // the day is treated as rest while paused.
-  const shownToday = useMemo(
-    () => active.filter((h) => isScheduledToday(h) || isPausedNow(h)),
-    [active],
-  );
+  // Every active habit appears in the row. Rest-day habits (not scheduled
+  // today) get an orange outline so the user still sees them at a glance
+  // without confusing them with today's expectations. countableToday drives
+  // the "X/Y today" tally — only scheduled, non-paused habits count.
+  const shownToday = active;
   const countableToday = useMemo(
     () => active.filter((h) => isScheduledToday(h) && !isPausedNow(h)),
     [active],
@@ -94,6 +92,7 @@ function SmallRing({
   entry: HabitEntry | undefined;
 }) {
   const paused = isPausedNow(habit);
+  const restToday = !paused && !isScheduledToday(habit);
   const p = paused ? 0 : progressOf(habit, entry);
   const size = 34;
   const stroke = 3;
@@ -104,16 +103,23 @@ function SmallRing({
       ? "var(--color-subtle)"
       : "var(--color-accent)";
   const dashArray = `${c * p} ${c}`;
+  // Pause takes visual priority (user-initiated); rest days are a softer
+  // "not on the schedule today" signal.
+  const outlineColor = paused
+    ? "var(--color-pause)"
+    : restToday
+      ? "var(--color-rest)"
+      : null;
   return (
     <div
       className="relative"
       style={{
         width: size,
         height: size,
-        // When paused, wrap the ring in a pause-colored outline so it reads
-        // as "on hold" at a glance.
-        borderRadius: paused ? "50%" : undefined,
-        boxShadow: paused ? "0 0 0 1.5px var(--color-pause)" : undefined,
+        borderRadius: outlineColor ? "50%" : undefined,
+        boxShadow: outlineColor ? `0 0 0 1.5px ${outlineColor}` : undefined,
+        // Dim rest-day habits so scheduled ones stay visually loudest.
+        opacity: restToday ? 0.55 : 1,
       }}
     >
       <svg width={size} height={size} className="-rotate-90">
