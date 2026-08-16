@@ -25,6 +25,7 @@ import {
   deleteCardioSession,
 } from "../lib/cardio";
 import WorkoutSheet from "../components/WorkoutSheet";
+import WorkoutSession from "../components/WorkoutSession";
 import CardioSheet from "../components/CardioSheet";
 import ExportSheet from "../components/ExportSheet";
 import StartDial from "../components/StartDial";
@@ -201,13 +202,27 @@ export default function Fitness() {
         </Section>
       </div>
 
-      {openWorkoutId !== null && (
-        <WorkoutSheet
-          workoutId={openWorkoutId}
-          onClose={() => setOpenWorkoutId(null)}
-          onSwitchWorkout={(newId) => setOpenWorkoutId(newId)}
-        />
-      )}
+      {openWorkoutId !== null && (() => {
+        // Active workouts (still in progress) go to the new live session
+        // screen; completed workouts open in the read-only-ish WorkoutSheet
+        // so we can still review past days from the calendar / history.
+        const w = allWorkouts.find((x) => x.id === openWorkoutId);
+        if (w && w.completedAt === undefined) {
+          return (
+            <WorkoutSession
+              workoutId={openWorkoutId}
+              onClose={() => setOpenWorkoutId(null)}
+            />
+          );
+        }
+        return (
+          <WorkoutSheet
+            workoutId={openWorkoutId}
+            onClose={() => setOpenWorkoutId(null)}
+            onSwitchWorkout={(newId) => setOpenWorkoutId(newId)}
+          />
+        );
+      })()}
 
       {cardioOpen && (
         <CardioSheet onClose={() => setCardioOpen(false)} />

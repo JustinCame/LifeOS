@@ -220,6 +220,36 @@ export async function updateSet(
   await db.workouts.update(workoutId, { exercises })
 }
 
+// Replace an exercise slot mid-workout with an alternative. If the new name
+// exists in the library, its id is picked up so downstream stats still know
+// which lift this is. Preserves sets + prescription; records swappedFrom
+// (or clears it when swapping back to the original).
+export async function swapExerciseSlot(
+  workoutId: number,
+  exerciseIndex: number,
+  newName: string,
+): Promise<void> {
+  const w = await db.workouts.get(workoutId)
+  if (!w) return
+  const ex = w.exercises[exerciseIndex]
+  if (!ex) return
+  const libEx = await db.exercises.where('name').equals(newName).first()
+  const originalName = ex.swappedFrom ?? ex.exerciseName
+  const isBackToOriginal = newName === originalName
+  const exercises = w.exercises.slice()
+  exercises[exerciseIndex] = {
+    ...ex,
+    exerciseName: newName,
+    ...(libEx?.id !== undefined
+      ? { exerciseId: libEx.id }
+      : { exerciseId: undefined }),
+    ...(isBackToOriginal
+      ? { swappedFrom: undefined }
+      : { swappedFrom: originalName }),
+  }
+  await db.workouts.update(workoutId, { exercises })
+}
+
 export async function removeSet(
   workoutId: number,
   exerciseIndex: number,
