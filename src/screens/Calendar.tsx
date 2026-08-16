@@ -251,6 +251,53 @@ export default function Calendar() {
         </Card>
 
         <div className="mt-[22px]">
+          {/* Journal (from Today's "What did you do today?" prompt). Sits
+              above the events list so the user's own reflection reads first;
+              only renders when this day actually has an entry. */}
+          {selectedLog && (
+            <div className="mb-3">
+              <Section
+                title="Journal"
+                meta={
+                  selectedLog.tags.length > 0
+                    ? `${selectedLog.tags.length} ${selectedLog.tags.length === 1 ? "tag" : "tags"}`
+                    : ""
+                }
+              >
+                <Card>
+                  <div className="px-3.5 py-3">
+                    {selectedLog.tags.length > 0 && (
+                      <div className="mb-2 flex flex-wrap gap-1.5">
+                        {selectedLog.tags.map((k) => {
+                          const t = tagByKey(k);
+                          if (!t) return null;
+                          return (
+                            <span
+                              key={k}
+                              className="rounded-[5px] px-1.5 py-0.5 text-[10px] font-medium text-white"
+                              style={{ background: t.color }}
+                            >
+                              {t.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {selectedLog.text.trim() ? (
+                      <div className="whitespace-pre-wrap text-sm leading-snug text-fg">
+                        {selectedLog.text}
+                      </div>
+                    ) : (
+                      <div className="font-mono text-[11px] text-subtle">
+                        Tags only — no text written.
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              </Section>
+            </div>
+          )}
+
           <Section
             title={selectedTitle}
             meta={
@@ -304,52 +351,6 @@ export default function Calendar() {
                 day: "numeric",
               })}
             </button>
-          )}
-
-          {/* Journal (from Today's "What did you do today?" prompt). Only
-              renders when this day has an entry — no empty state. */}
-          {selectedLog && (
-            <div className="mb-3">
-              <Section
-                title="Journal"
-                meta={
-                  selectedLog.tags.length > 0
-                    ? `${selectedLog.tags.length} ${selectedLog.tags.length === 1 ? "tag" : "tags"}`
-                    : ""
-                }
-              >
-                <Card>
-                  <div className="px-3.5 py-3">
-                    {selectedLog.tags.length > 0 && (
-                      <div className="mb-2 flex flex-wrap gap-1.5">
-                        {selectedLog.tags.map((k) => {
-                          const t = tagByKey(k);
-                          if (!t) return null;
-                          return (
-                            <span
-                              key={k}
-                              className="rounded-[5px] px-1.5 py-0.5 text-[10px] font-medium text-white"
-                              style={{ background: t.color }}
-                            >
-                              {t.label}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {selectedLog.text.trim() ? (
-                      <div className="whitespace-pre-wrap text-sm leading-snug text-fg">
-                        {selectedLog.text}
-                      </div>
-                    ) : (
-                      <div className="font-mono text-[11px] text-subtle">
-                        Tags only — no text written.
-                      </div>
-                    )}
-                  </div>
-                </Card>
-              </Section>
-            </div>
           )}
         </div>
       </div>
