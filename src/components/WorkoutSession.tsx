@@ -5,6 +5,7 @@ import type { Workout, WorkoutExercise, WorkoutSet } from "../db/types";
 import {
   DEFAULT_REST_SEC,
   addSet,
+  discardWorkout,
   finishWorkout,
   isSetCompleted,
   removeSet,
@@ -123,6 +124,16 @@ export default function WorkoutSession({ workoutId, onClose }: Props) {
     close();
   };
 
+  const onDiscard = async () => {
+    const msg =
+      totals.done === 0
+        ? "Discard this workout? Nothing was logged, so nothing is lost."
+        : `Discard this workout? ${totals.done} logged set${totals.done === 1 ? "" : "s"} will be deleted — this can't be undone.`;
+    if (!confirm(msg)) return;
+    await discardWorkout(workoutId);
+    close();
+  };
+
   return (
     <div
       className={`absolute inset-0 z-50 flex flex-col bg-bg transition-transform duration-260 ${
@@ -152,6 +163,12 @@ export default function WorkoutSession({ workoutId, onClose }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={onDiscard}
+              className="rounded-[10px] border border-border bg-surface px-2.5 py-1.5 text-xs text-subtle hover:border-border-strong hover:text-fg"
+            >
+              Discard
+            </button>
             <button
               onClick={onFinish}
               className="rounded-[10px] bg-accent px-3 py-1.5 text-sm font-medium text-[#0a160d]"
