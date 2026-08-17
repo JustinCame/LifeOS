@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { fireLocalNotification } from "../lib/notifications";
 import { useTick } from "../lib/useTick";
 
 interface Props {
@@ -31,10 +32,23 @@ export default function RestTimer({
 
   const left = Math.max(0, Math.ceil((endsAt - now) / 1000));
 
-  // Auto-dismiss when the timer runs out. Guarded with a useEffect so we
-  // don't call onClose during render.
+  // Fire the "rest done" notification + vibration exactly once when the
+  // timer runs out. Guarded with a ref so the auto-dismiss useEffect
+  // doesn't re-fire it if React batches the transition oddly. On iOS
+  // Safari this fires when the app returns to foreground if the timer
+  // ran out while backgrounded (setInterval doesn't run in the
+  // background; useTick catches up on visibilitychange).
+  const notifiedRef = useRef(false);
   useEffect(() => {
-    if (left <= 0) onClose();
+    if (left > 0) return;
+    if (!notifiedRef.current) {
+      notifiedRef.current = true;
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        try { navigator.vibrate?.(200); } catch { /* noop */ }
+      }
+      fireLocalNotification("Rest done", "Ready for your next set.");
+    }
+    onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left]);
 

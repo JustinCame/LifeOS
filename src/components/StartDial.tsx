@@ -11,6 +11,7 @@ import {
   todaysLift,
 } from "../lib/userProgram";
 import { useTick } from "../lib/useTick";
+import { fireLocalNotification } from "../lib/notifications";
 
 interface Props {
   hasActiveWorkout: boolean;
@@ -106,7 +107,9 @@ export default function StartDial({
 
   // Auto-end a HIIT interval when it hits 0. Freeze session countdown and
   // wait for the user to tap "Next 90s". Session time not consumed while
-  // between intervals — matches the previous decrementing model.
+  // between intervals — matches the previous decrementing model. Also
+  // fires the "interval done" notification + vibration so the user knows
+  // to switch modes even if they've backgrounded the app.
   useEffect(() => {
     if (!run) return;
     if (!isHiit) return;
@@ -116,6 +119,10 @@ export default function StartDial({
       run.sessionEndsAt !== null
         ? Math.max(0, Math.ceil((run.sessionEndsAt - now) / 1000))
         : (run.pausedLeft ?? 0);
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      try { navigator.vibrate?.(200); } catch { /* noop */ }
+    }
+    fireLocalNotification("Interval done", "Rest, then tap for the next.");
     setRun({
       ...run,
       sessionEndsAt: null,
@@ -125,11 +132,19 @@ export default function StartDial({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [derivedIv, isHiit]);
 
-  // Auto-finalize when the total session runs out.
+  // Auto-finalize when the total session runs out. Fires the "cardio done"
+  // notification + a slightly longer vibration.
   useEffect(() => {
     if (!run) return;
     if (derivedLeft > 0) return;
     const kind: CardioKind = cardio.key;
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      try { navigator.vibrate?.([200, 100, 200]); } catch { /* noop */ }
+    }
+    fireLocalNotification(
+      "Cardio done",
+      `${cardio.name} · ${cardio.min} min complete.`,
+    );
     addCardioSession({
       kind,
       durationMin: cardio.min,
