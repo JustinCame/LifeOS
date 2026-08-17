@@ -321,11 +321,13 @@ function SleepDetailForm({
       : "—";
 
   return (
-    <div className="mt-6 rounded-[16px] border border-border bg-surface p-3">
-      {/* min-w-0 on each label is what actually lets the grid constrain
-          the native <input type="time"> — iOS Safari's picker has an
-          intrinsic content width that ignores w-full without it. */}
-      <div className="grid grid-cols-2 gap-2">
+    <div className="mt-6 overflow-hidden rounded-[16px] border border-border bg-surface p-3">
+      {/* Grid uses explicit minmax(0, 1fr) so each column can actually
+          shrink below the intrinsic content width of iOS Safari's native
+          time picker (Tailwind's default grid-cols-2 = 1fr 1fr won't
+          shrink). Combined with appearance-none, this reliably keeps the
+          inputs within their card even on narrow phones. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
         <label className="block min-w-0">
           <span className="mb-1 block font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
             Bedtime
@@ -334,7 +336,7 @@ function SleepDetailForm({
             type="time"
             value={bed}
             onChange={(e) => setBed(e.target.value)}
-            className="block w-full min-w-0 rounded-[8px] border border-border bg-bg px-2 py-2 text-sm outline-none"
+            className="block w-full min-w-0 appearance-none rounded-[8px] border border-border bg-bg px-2 py-2 text-sm outline-none"
           />
         </label>
         <label className="block min-w-0">
@@ -345,7 +347,7 @@ function SleepDetailForm({
             type="time"
             value={wake}
             onChange={(e) => setWake(e.target.value)}
-            className="block w-full min-w-0 rounded-[8px] border border-border bg-bg px-2 py-2 text-sm outline-none"
+            className="block w-full min-w-0 appearance-none rounded-[8px] border border-border bg-bg px-2 py-2 text-sm outline-none"
           />
         </label>
       </div>
