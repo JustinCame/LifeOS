@@ -347,7 +347,13 @@ export default function StartDial({
             strokeLinecap="round"
             strokeDasharray={`${C * ringPct} ${C}`}
             transform="rotate(-90 102 102)"
-            opacity={rest ? 0.4 : running && !ticking ? 0.5 : 1}
+            opacity={
+              rest
+                ? 0.4
+                : running && run!.sessionEndsAt === null
+                  ? 0.5
+                  : 1
+            }
             style={{ transition: "stroke-dasharray 0.9s linear" }}
           />
         </svg>
