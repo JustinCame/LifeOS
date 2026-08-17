@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db";
 import {
@@ -8,6 +8,7 @@ import {
   getGoal,
   setDailyValue,
   setGoal,
+  setSleepFromTimes,
   startOfToday,
   type DailyMetricType,
 } from "../lib/health";
@@ -172,8 +173,21 @@ export default function MetricSheet({ type, onClose }: Props) {
                 )}
               </div>
 
-              {/* Quick add */}
-              {config.quickAdds.length > 0 && (
+              {/* Sleep detail — bedtime + wake time inputs. Replaces the
+                  generic quick-add / set-total UI for the sleep metric so
+                  the duration is derived from the times rather than
+                  entered directly. */}
+              {t === "sleep" && (
+                <SleepDetailForm
+                  today={today}
+                  bedtimeMs={log?.bedtimeMs}
+                  wakeMs={log?.wakeMs}
+                />
+              )}
+
+              {/* Quick add — hidden for sleep since duration comes from
+                  the bedtime/wake inputs above. */}
+              {t !== "sleep" && config.quickAdds.length > 0 && (
                 <div className="mt-6 grid grid-cols-3 gap-2">
                   {config.quickAdds.map((d) => (
                     <button
@@ -188,8 +202,10 @@ export default function MetricSheet({ type, onClose }: Props) {
                 </div>
               )}
 
-              {/* Set exact value */}
-              <form onSubmit={submitSet} className="mt-3 flex gap-2">
+              {/* Set exact value — hidden for sleep since duration is
+                  derived from bedtime + wake. */}
+              {t !== "sleep" && (
+                <form onSubmit={submitSet} className="mt-3 flex gap-2">
                 <input
                   type="number"
                   step="any"
@@ -210,7 +226,8 @@ export default function MetricSheet({ type, onClose }: Props) {
                 >
                   Set
                 </button>
-              </form>
+                </form>
+              )}
 
               {/* Reset */}
               {value > 0 && (
@@ -227,4 +244,134 @@ export default function MetricSheet({ type, onClose }: Props) {
       </div>
     </>
   );
+}
+
+// Sleep entry — two <input type="time"> widgets, an auto-computed
+// duration readout, and one Save button. Handles the common midnight-
+// crossing case (bed at 23:30, wake at 07:00) by treating any bedtime
+// that's chronologically after the wake time as belonging to the
+// previous day.
+function SleepDetailForm({
+  today,
+  bedtimeMs,
+  wakeMs,
+}: {
+  today: number;
+  bedtimeMs: number | undefined;
+  wakeMs: number | undefined;
+}) {
+  // Seed the inputs from the stored timestamps if any, else with sensible
+  // defaults (11pm bedtime, 7am wake — starting values, not silent writes).
+  const [bed, setBed] = useState<string>(
+    bedtimeMs !== undefined ? timeOfDay(bedtimeMs) : "23:00",
+  );
+  const [wake, setWake] = useState<string>(
+    wakeMs !== undefined ? timeOfDay(wakeMs) : "07:00",
+  );
+  const [saving, setSaving] = useState(false);
+
+  // If the sheet reopens with a stored value, refresh the inputs. Guarded
+  // so the user's mid-edit values don't get clobbered on unrelated re-
+  // renders.
+  useEffect(() => {
+    if (bedtimeMs !== undefined) setBed(timeOfDay(bedtimeMs));
+    if (wakeMs !== undefined) setWake(timeOfDay(wakeMs));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bedtimeMs, wakeMs]);
+
+  // Compute the ms timestamps + derived duration. Wake anchors to `today`
+  // (00:00 + wake time). Bed anchors to `today` if it's before the wake
+  // time, else to the previous day.
+  const { computed, hours } = useMemo(() => {
+    const [bh, bm] = bed.split(":").map((s) => parseInt(s, 10));
+    const [wh, wm] = wake.split(":").map((s) => parseInt(s, 10));
+    if (
+      Number.isNaN(bh) ||
+      Number.isNaN(bm) ||
+      Number.isNaN(wh) ||
+      Number.isNaN(wm)
+    ) {
+      return { computed: null, hours: 0 };
+    }
+    const bedMin = bh * 60 + bm;
+    const wakeMin = wh * 60 + wm;
+    const wakeTs = today + wakeMin * 60_000;
+    // If bedtime is later in the day than wake time, it must have been
+    // yesterday. Otherwise it's earlier the same day (e.g. a nap or a
+    // very short overnight, both rare but handled).
+    const bedTs =
+      bedMin > wakeMin
+        ? today - 24 * 3_600_000 + bedMin * 60_000
+        : today + bedMin * 60_000;
+    return { computed: { bedTs, wakeTs }, hours: (wakeTs - bedTs) / 3_600_000 };
+  }, [bed, wake, today]);
+
+  const onSave = async () => {
+    if (!computed) return;
+    setSaving(true);
+    await setSleepFromTimes(computed.bedTs, computed.wakeTs, today);
+    // Brief settle so the button state updates before parent's useLiveQuery
+    // repaints. No spinner — the save is fast enough that a flash is enough.
+    window.setTimeout(() => setSaving(false), 150);
+  };
+
+  const hoursLabel =
+    hours > 0
+      ? `${Math.floor(hours)}h ${Math.round((hours - Math.floor(hours)) * 60)}m`
+      : "—";
+
+  return (
+    <div className="mt-6 rounded-[16px] border border-border bg-surface p-3.5">
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block">
+          <span className="mb-1 block font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
+            Bedtime
+          </span>
+          <input
+            type="time"
+            value={bed}
+            onChange={(e) => setBed(e.target.value)}
+            className="w-full rounded-[8px] border border-border bg-bg px-2.5 py-2 text-base outline-none"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
+            Wake time
+          </span>
+          <input
+            type="time"
+            value={wake}
+            onChange={(e) => setWake(e.target.value)}
+            className="w-full rounded-[8px] border border-border bg-bg px-2.5 py-2 text-base outline-none"
+          />
+        </label>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="font-mono text-sm text-fg">
+          {hoursLabel}
+          <span className="ml-1 text-xs text-subtle">total</span>
+        </div>
+        <button
+          onClick={onSave}
+          disabled={!computed || saving}
+          className={`rounded-[10px] px-4 py-2 text-sm font-medium transition ${
+            computed && !saving
+              ? "bg-accent text-[#0a160d]"
+              : "bg-surface-2 text-subtle"
+          }`}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Format a wall-clock timestamp as 24h "HH:MM" for the <input type="time">
+// value. Uses local time.
+function timeOfDay(ms: number): string {
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
 }

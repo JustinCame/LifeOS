@@ -322,6 +322,12 @@ export interface HealthLog {
   unit?: string
   notes?: string
   createdAt: number
+  // Sleep-only detail — full wall-clock timestamps for bedtime + wake.
+  // When present, `value` (duration in hours) is derived from these and
+  // kept in sync so insights and displays that already read `value` keep
+  // working unchanged. Legacy rows without these fields still work fine.
+  bedtimeMs?: number
+  wakeMs?: number
 }
 
 export interface ChatMessage {

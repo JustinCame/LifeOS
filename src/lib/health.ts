@@ -115,6 +115,41 @@ export async function addToDaily(
   await setDailyValue(type, current + delta, dayStart)
 }
 
+// Sleep-specific write. Takes full wall-clock timestamps for bedtime and
+// wake, computes the derived duration (hours) as the row's `value` so any
+// caller reading log.value keeps working unchanged, and stores both
+// timestamps so the entry surface + future insights can access them.
+export async function setSleepFromTimes(
+  bedtimeMs: number,
+  wakeMs: number,
+  dayStart: number = startOfToday(),
+): Promise<void> {
+  if (wakeMs <= bedtimeMs) return // invalid range; ignore rather than write garbage
+  const hours = (wakeMs - bedtimeMs) / 3_600_000
+  const existing = await db.health_logs
+    .where('[date+type]')
+    .equals([dayStart, 'sleep'])
+    .first()
+  if (existing) {
+    await db.health_logs.update(existing.id!, {
+      value: hours,
+      unit: 'h',
+      bedtimeMs,
+      wakeMs,
+    })
+  } else {
+    await db.health_logs.add({
+      date: dayStart,
+      type: 'sleep',
+      value: hours,
+      unit: 'h',
+      bedtimeMs,
+      wakeMs,
+      createdAt: Date.now(),
+    })
+  }
+}
+
 export async function getGoal(type: DailyMetricType): Promise<number> {
   const stored = await getSetting<number>(METRIC_CONFIG[type].settingKey)
   return stored ?? METRIC_CONFIG[type].defaultGoal

@@ -16,6 +16,7 @@ import WeeklyReviewSheet from "../components/WeeklyReviewSheet";
 import HabitRingRow from "../components/HabitRingRow";
 import DailyPromptCard from "../components/DailyPromptCard";
 import InsightCard from "../components/InsightCard";
+import InsightsHistorySheet from "../components/InsightsHistorySheet";
 import ProgramEditorScreen from "./ProgramEditorScreen";
 import { markSeen } from "../lib/insights/engine";
 import type { InsightSeverity } from "../db/types";
@@ -40,6 +41,15 @@ export default function Home({
 }: HomeProps) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [programEditorOpen, setProgramEditorOpen] = useState(false);
+  const [insightHistoryOpen, setInsightHistoryOpen] = useState(false);
+  // Total insights ever generated (minus the Phase 1 demo). Powers the
+  // "Insight history · N" row label so the user sees whether there's
+  // anything worth opening it for.
+  const insightHistoryCount =
+    useLiveQuery(async () => {
+      const rows = await db.insights.toArray();
+      return rows.filter((i) => i.kind !== "phase1_demo").length;
+    }) ?? 0;
 
   // --- Calendar (live, next 7 days starting tomorrow) ---
   const authSetting = useLiveQuery(() => db.settings.get("google_auth"));
@@ -337,6 +347,25 @@ export default function Home({
             <NotificationsRow />
             <BackupRow onClick={onOpenBackup} />
             <button
+              onClick={() => setInsightHistoryOpen(true)}
+              className="flex w-full items-center gap-3 rounded-[16px] border border-border bg-surface px-3.5 py-3 text-left hover:border-border-strong active:scale-[0.99]"
+            >
+              <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-surface-2 text-subtle">
+                <BulbIcon />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-base leading-tight text-fg">
+                  Insight history
+                </div>
+                <div className="mt-0.5 font-mono text-[11px] text-muted">
+                  {insightHistoryCount > 0
+                    ? `${insightHistoryCount} insight${insightHistoryCount === 1 ? "" : "s"} · filter by coach or status`
+                    : "Nothing yet — the AI writes into this log as insights fire."}
+                </div>
+              </div>
+              <span className="text-subtle">›</span>
+            </button>
+            <button
               onClick={() => setProgramEditorOpen(true)}
               className="flex w-full items-center gap-3 rounded-[16px] border border-border bg-surface px-3.5 py-3 text-left hover:border-border-strong active:scale-[0.99]"
             >
@@ -373,6 +402,10 @@ export default function Home({
 
       {reviewOpen && (
         <WeeklyReviewSheet onClose={() => setReviewOpen(false)} />
+      )}
+
+      {insightHistoryOpen && (
+        <InsightsHistorySheet onClose={() => setInsightHistoryOpen(false)} />
       )}
     </div>
   );
@@ -512,6 +545,25 @@ function BackupIcon() {
         strokeWidth="1.4"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function BulbIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M5 9.5a3.5 3.5 0 1 1 6 0c0 1.2-.7 1.9-1.2 2.5H6.2C5.7 11.4 5 10.7 5 9.5Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.5 12.5h3M7 14h2"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
       />
     </svg>
   );
