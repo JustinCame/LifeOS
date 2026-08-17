@@ -619,6 +619,104 @@ async function checkSleepBeforeHeavy(
   ]
 }
 
+// ---- tdee_drift ----
+//
+// Scheduled trigger. Compares the user's implied TDEE (from weight trend +
+// average intake over 14+ days) against their configured calorie goal.
+// If they're off by more than 10%, flag it — that's usually the sign that
+// the calorie target needs re-tuning.
+//
+// Requires both 14+ days of weight logs AND 14+ days of meal_entries
+// covering the same window. Silent otherwise.
+
+async function checkTdeeDrift(
+  ctx: TriggerContext,
+): Promise<TriggerResult[] | null> {
+  const dayMs = 86_400_000
+  const windowStart = ctx.today - 13 * dayMs // 14 day window incl today
+
+  // Weight logs over the window, sorted by date.
+  const weightLogs = (
+    await db.health_logs
+      .where('[date+type]')
+      .between([windowStart, 'weight'], [ctx.today, 'weight'], true, true)
+      .toArray()
+  ).sort((a, b) => a.date - b.date)
+  if (weightLogs.length < 4) return null // need enough anchors for a trend
+
+  // Meal entries over the window. Compute per-day calorie totals.
+  const meals = await db.meal_entries
+    .where('date')
+    .between(windowStart, ctx.today, true, true)
+    .toArray()
+  const dayCalories = new Map<number, number>()
+  for (const m of meals) {
+    dayCalories.set(m.date, (dayCalories.get(m.date) ?? 0) + m.macros.calories)
+  }
+  if (dayCalories.size < 10) return null // sparsely logged; TDEE math is noise
+
+  // Weekly weight averages — first ~7 days vs last ~7 days — smooths daily
+  // fluctuation (water, timing) that would otherwise dominate the delta.
+  const mid = windowStart + 6 * dayMs
+  const firstHalf = weightLogs.filter((w) => w.date <= mid).map((w) => w.value)
+  const secondHalf = weightLogs.filter((w) => w.date > mid).map((w) => w.value)
+  if (firstHalf.length === 0 || secondHalf.length === 0) return null
+  const avg = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length
+  const firstAvg = avg(firstHalf)
+  const secondAvg = avg(secondHalf)
+  const weightDeltaLb = secondAvg - firstAvg
+  const daysBetween = 7 // midpoint-to-midpoint approximation
+
+  // 1 lb body-weight change ≈ 3500 kcal. Positive delta = user is gaining,
+  // meaning intake > TDEE.
+  const kcalSurplusPerDay = (weightDeltaLb * 3500) / daysBetween
+  const totalCalories = Array.from(dayCalories.values()).reduce(
+    (s, x) => s + x,
+    0,
+  )
+  const daysLogged = dayCalories.size
+  const avgIntake = totalCalories / daysLogged
+  const impliedTdee = avgIntake - kcalSurplusPerDay
+
+  const calorieGoal = await getMacroGoal('calories')
+  const drift = impliedTdee - calorieGoal
+  const driftPct = Math.abs(drift) / calorieGoal
+  if (driftPct < 0.1) return null
+
+  const slice: Record<string, unknown> = {
+    window_days: 14,
+    days_of_weight_logs: weightLogs.length,
+    days_of_calorie_logs: daysLogged,
+    weight: {
+      first_half_avg_lb: Math.round(firstAvg * 10) / 10,
+      second_half_avg_lb: Math.round(secondAvg * 10) / 10,
+      change_lb: Math.round(weightDeltaLb * 10) / 10,
+    },
+    avg_daily_intake_kcal: Math.round(avgIntake),
+    implied_tdee_kcal: Math.round(impliedTdee),
+    configured_calorie_goal: calorieGoal,
+    drift_kcal: Math.round(drift),
+    drift_pct: Math.round(driftPct * 100),
+    direction:
+      drift > 0
+        ? 'implied_tdee_higher_than_goal'
+        : 'implied_tdee_lower_than_goal',
+  }
+
+  const promptHint = `The user's weight and macro logs from the last 14 days imply a TDEE ~${Math.abs(Math.round(drift))} kcal ${drift > 0 ? 'higher' : 'lower'} than their configured calorie goal of ${calorieGoal}. That's a ${Math.round(driftPct * 100)}% drift. Explain the math briefly and suggest they either adjust the goal or accept the current pace. Use the exact numbers.`
+
+  return [
+    {
+      // Only one per period — no meaningful subjectKey; the inputHash + the
+      // 24h ttl handles cooldown.
+      subjectKey: 'tdee',
+      severity: 'notable',
+      slice,
+      promptHint,
+    },
+  ]
+}
+
 export const TRIGGERS: Trigger[] = [
   {
     id: 'macro_gap',
@@ -684,6 +782,18 @@ export const TRIGGERS: Trigger[] = [
     cadence: 'scheduled',
     ttlHours: 24,
     check: checkSleepBeforeHeavy,
+  },
+  {
+    id: 'tdee_drift',
+    coach: 'health',
+    surface: 'home_top',
+    // Sonnet — the drift math is small but the recommendation ("adjust
+    // goal by ~200 kcal" vs "your logging is too sparse to trust this
+    // yet") benefits from more capability than a Haiku pattern-match.
+    model: 'sonnet',
+    cadence: 'scheduled',
+    ttlHours: 24 * 3,
+    check: checkTdeeDrift,
   },
 ]
 
