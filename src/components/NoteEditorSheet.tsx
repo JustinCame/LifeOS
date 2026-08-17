@@ -23,6 +23,10 @@ export default function NoteEditorSheet({ target, onClose }: Props) {
   const [tags, setTags] = useState<string[]>([]);
   const [pinnedAt, setPinnedAt] = useState<number | undefined>(undefined);
   const [archivedAt, setArchivedAt] = useState<number | undefined>(undefined);
+  // Tags section is collapsed by default — it sits below the body so the
+  // writing surface stays clean; user opens it when they actually want to
+  // change categories.
+  const [tagsExpanded, setTagsExpanded] = useState(false);
   // For new notes, holds the id Dexie assigned after the first save so
   // subsequent edits update the same row.
   const [draftId, setDraftId] = useState<number | null>(null);
@@ -246,37 +250,88 @@ export default function NoteEditorSheet({ target, onClose }: Props) {
             readOnly={isArchived}
           />
 
-          {/* Tag chips — same 12-tag palette daily_logs uses so a "Work"
-              tag reads the same across surfaces. */}
-          <div className="mt-3 grid grid-cols-4 gap-1.5">
-            {DAILY_TAGS.map((t) => {
-              const active = tags.includes(t.key);
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => toggleTag(t.key)}
-                  disabled={isArchived}
-                  className="rounded-[8px] py-1.5 text-center text-[11px] font-medium transition disabled:opacity-40"
-                  style={{
-                    background: active ? t.color : "var(--color-surface-2)",
-                    color: active ? "#fff" : "var(--color-fg)",
-                    boxShadow: active ? "none" : `inset 0 0 0 1px ${t.color}55`,
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
-
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder="Start typing…"
-            className="mt-4 w-full flex-1 resize-none bg-transparent text-base leading-relaxed text-fg outline-none placeholder:text-subtle"
+            className="mt-3 w-full flex-1 resize-none bg-transparent text-base leading-relaxed text-fg outline-none placeholder:text-subtle"
             style={{ minHeight: "48vh" }}
             readOnly={isArchived}
           />
+
+          {/* Tags — collapsed by default so the body has the visual
+              priority. Header row previews the currently-selected tags
+              inline; tap to expand the full 12-tag palette (same palette
+              daily_logs uses, so a "Work" tag reads the same across
+              surfaces). */}
+          <div className="mt-4">
+            <button
+              onClick={() => setTagsExpanded((v) => !v)}
+              className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-surface px-3 py-2 text-left hover:border-border-strong"
+            >
+              <span className="flex-shrink-0 font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
+                Tags
+              </span>
+              {tags.length === 0 ? (
+                <span className="flex-1 text-[11px] text-subtle">
+                  none — tap to add
+                </span>
+              ) : (
+                <div className="flex flex-1 flex-wrap items-center gap-1 overflow-hidden">
+                  {tags.map((k) => {
+                    const t = DAILY_TAGS.find((d) => d.key === k);
+                    if (!t) return null;
+                    return (
+                      <span
+                        key={t.key}
+                        className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                        style={{
+                          background: `${t.color}22`,
+                          color: t.color,
+                        }}
+                      >
+                        {t.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              <span
+                className={`flex-shrink-0 text-subtle transition-transform ${
+                  tagsExpanded ? "rotate-180" : ""
+                }`}
+              >
+                <ChevronDownIcon />
+              </span>
+            </button>
+
+            {tagsExpanded && (
+              <div className="mt-2 grid grid-cols-4 gap-1.5">
+                {DAILY_TAGS.map((t) => {
+                  const active = tags.includes(t.key);
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => toggleTag(t.key)}
+                      disabled={isArchived}
+                      className="rounded-[8px] py-1.5 text-center text-[11px] font-medium transition disabled:opacity-40"
+                      style={{
+                        background: active
+                          ? t.color
+                          : "var(--color-surface-2)",
+                        color: active ? "#fff" : "var(--color-fg)",
+                        boxShadow: active
+                          ? "none"
+                          : `inset 0 0 0 1px ${t.color}55`,
+                      }}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {/* Bottom actions — Archive / Restore + permanent Delete for
               archived notes. */}
@@ -323,6 +378,20 @@ function PinIcon() {
         strokeLinejoin="round"
         fill="currentColor"
         fillOpacity="0.15"
+      />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path
+        d="M3 4.5 L6 7.5 L9 4.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
