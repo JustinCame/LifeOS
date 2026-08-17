@@ -434,6 +434,37 @@ class LifeOSDB extends Dexie {
       insights:
         '++id, coach, kind, date, status, [kind+date], [status+date], subjectKey, createdAt',
     })
+
+    // v14: notes get pinnedAt / archivedAt / *tags indexes for the
+    // Notes-tab upgrade (search, pin, tag filter, archive). Existing rows
+    // stay valid — the new fields are optional and default to undefined
+    // (unpinned, unarchived, untagged).
+    this.version(14).stores({
+      settings: '&key, updatedAt',
+      tasks:
+        '++id, status, dueDate, priority, source, calendarEventId, emailId, goalId, createdAt, *tags',
+      workouts: '++id, date, completedAt, createdAt',
+      meals: '++id, date, type, [date+type], createdAt',
+      transactions: '++id, date, category, source, emailId, createdAt',
+      habits: '++id, name, createdAt, archivedAt',
+      goals: '++id, status, term, targetDate, createdAt',
+      health_logs: '++id, date, type, [date+type], createdAt',
+      chat_history:
+        '++id, conversationId, [conversationId+createdAt], createdAt',
+      cached_briefs: '++id, type, date, [type+date], createdAt',
+      foods: '++id, name, barcode, lastUsedAt, useCount, createdAt',
+      meal_entries: '++id, date, type, foodId, recipeId, [date+type], createdAt',
+      goal_journal: '++id, goalId, [goalId+createdAt], createdAt',
+      exercises: '++id, name, isCustom, lastUsedAt, useCount, createdAt',
+      workout_templates: '++id, name, lastUsedAt, useCount, createdAt',
+      cardio_sessions: '++id, date, kind, createdAt',
+      notes: '++id, updatedAt, createdAt, pinnedAt, archivedAt, *tags',
+      recipes: '++id, name, lastUsedAt, useCount, createdAt',
+      habit_entries: '++id, habitId, date, [habitId+date], createdAt',
+      daily_logs: '++id, &date, updatedAt',
+      insights:
+        '++id, coach, kind, date, status, [kind+date], [status+date], subjectKey, createdAt',
+    })
   }
 }
 

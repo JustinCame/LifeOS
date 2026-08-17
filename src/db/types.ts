@@ -363,12 +363,25 @@ export interface DailyLog {
 }
 
 // Freeform notes — simple title + body, auto-saved as you type.
+// Optional metadata:
+//   pinnedAt   — timestamp when pinned. Pinned notes float above the rest
+//                on the Notes screen. `undefined` = not pinned.
+//   archivedAt — timestamp when archived (soft delete). Archived notes
+//                stop showing in the main list; they can be restored or
+//                permanently deleted from a collapsible section at the
+//                bottom of the screen.
+//   tags       — string keys from lib/dailyLog.DAILY_TAGS. Shared palette
+//                with the daily-log prompt so a "Work" tag reads the same
+//                across surfaces.
 export interface Note {
   id?: number
   title: string
   body: string
   createdAt: number
   updatedAt: number
+  pinnedAt?: number
+  archivedAt?: number
+  tags?: string[]
 }
 
 // -------- Passive insight layer --------
