@@ -66,6 +66,10 @@ export interface Trigger {
   model: ModelTier
   cadence: 'on_write' | 'scheduled' | 'both'
   ttlHours: number // don't re-fire same subjectKey within this window
+  // When set, after inserting a generated insight, the engine also POSTs
+  // {title, body} to /api/queue-push under this slot so the next matching
+  // cron in vercel.json can deliver it as a push notification.
+  pushSlot?: 'morning'
   check(ctx: TriggerContext): Promise<TriggerResult[] | null>
 }
 
@@ -717,6 +721,113 @@ async function checkTdeeDrift(
   ]
 }
 
+// ---- morning_brief ----
+//
+// Fires at most once per day (subjectKey = today's date). When generated,
+// the engine both renders it on Home top AND queues it for the next
+// morning cron via pushSlot. Net effect over a normal usage pattern:
+//   - User opens app in the evening → brief generated for today's state →
+//     visible in-app immediately AND queued for next-morning push
+//   - Cron fires next morning → push arrives on the phone → tap opens app
+//
+// If the user opens the app in the morning before the cron fires, they
+// see the brief in-app first; the cron may still deliver it as a push
+// (that's a minor duplication, not a bug — the notification is a nudge
+// to look, in-app view is the primary surface).
+
+async function checkMorningBrief(
+  ctx: TriggerContext,
+): Promise<TriggerResult[] | null> {
+  // One brief per calendar day. Any status counts (including dismissed) —
+  // if the user dismissed today's brief, don't try again today.
+  const existing = await db.insights
+    .where('kind')
+    .equals('morning_brief')
+    .and((i) => i.date === ctx.today)
+    .first()
+  if (existing) return null
+
+  const dayMs = 86_400_000
+  const yesterday = ctx.today - dayMs
+
+  // Today's PPLUL session (may be a rest day).
+  const today = todaysLift(ctx.now)
+
+  // Fatigue snapshot — top 3 groups by pct.
+  const allWorkouts = (await db.workouts.toArray()).filter(
+    (w) => w.completedAt !== undefined,
+  )
+  const exercises = await db.exercises.toArray()
+  const exLib = new Map(
+    exercises
+      .filter((e): e is typeof e & { id: number } => e.id !== undefined)
+      .map((e) => [e.id, e]),
+  )
+  const topFatigue = rankFatigue(computeFatigue(allWorkouts, exLib))
+    .slice(0, 3)
+    .map((r) => ({ group: MUSCLE_LABELS[r.group], pct: r.pct }))
+
+  // Today's macros so far.
+  const todaysMeals = await db.meal_entries
+    .where('date')
+    .equals(ctx.today)
+    .toArray()
+  const todaysMacros = sumMacros(todaysMeals)
+  const calorieGoal = await getMacroGoal('calories')
+  const proteinGoal = await getMacroGoal('protein')
+
+  // Yesterday's rollup for context.
+  const yesterdaysMeals = await db.meal_entries
+    .where('date')
+    .equals(yesterday)
+    .toArray()
+  const yesterdaysMacros = sumMacros(yesterdaysMeals)
+  const yesterdaysWorkouts = allWorkouts.filter(
+    (w) => w.date === yesterday,
+  ).length
+
+  // Last night's sleep, if logged.
+  const sleepLast = await db.health_logs
+    .where('[date+type]')
+    .equals([yesterday, 'sleep'])
+    .first()
+
+  const slice: Record<string, unknown> = {
+    date_label: new Date(ctx.today).toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+    }),
+    todays_session: today
+      ? { name: today.templateName, key: today.key }
+      : { name: 'rest day', key: null },
+    macros_today: {
+      calories_so_far: Math.round(todaysMacros.calories),
+      protein_so_far: Math.round(todaysMacros.protein),
+      calorie_goal: calorieGoal,
+      protein_goal: proteinGoal,
+    },
+    yesterday: {
+      calories: Math.round(yesterdaysMacros.calories),
+      protein: Math.round(yesterdaysMacros.protein),
+      workouts_completed: yesterdaysWorkouts,
+    },
+    last_night_sleep_hours: sleepLast?.value ?? null,
+    top_fatigue_groups: topFatigue,
+  }
+
+  const promptHint = `Write a max 4-line morning brief for the user. Reference today's session, macro pace or yesterday's totals, and any notable state (sleep, fatigue). Be specific with numbers. This will show on Home AND be delivered as a push notification, so keep it scannable and self-contained. If nothing here is worth flagging, respond NONE.`
+
+  return [
+    {
+      subjectKey: `date:${ctx.today}`,
+      severity: 'notable',
+      slice,
+      promptHint,
+    },
+  ]
+}
+
 export const TRIGGERS: Trigger[] = [
   {
     id: 'macro_gap',
@@ -794,6 +905,20 @@ export const TRIGGERS: Trigger[] = [
     cadence: 'scheduled',
     ttlHours: 24 * 3,
     check: checkTdeeDrift,
+  },
+  {
+    id: 'morning_brief',
+    coach: 'home',
+    surface: 'home_top',
+    // Haiku — this is a tight scannable digest, not a comparison or a
+    // recommendation. Haiku is fast, cheap, and plenty for the shape.
+    model: 'haiku',
+    cadence: 'scheduled',
+    ttlHours: 24,
+    // Queue for the morning cron in vercel.json so it also arrives as a
+    // push notification.
+    pushSlot: 'morning',
+    check: checkMorningBrief,
   },
 ]
 

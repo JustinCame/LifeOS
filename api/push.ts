@@ -12,8 +12,19 @@ import { kv } from '@vercel/kv'
 import webpush, { type PushSubscription } from 'web-push'
 
 const KEY = 'push:subscription'
+const INSIGHT_SLOT_PREFIX = 'push:pending:'
+// Slots the insight branch will read from. Keep in sync with the ALLOWED_SLOTS
+// list in api/queue-push.ts; a cron that hits an unknown slot silently sends
+// nothing rather than falling back.
+const ALLOWED_INSIGHT_SLOTS = new Set(['morning'])
 
 export const config = { runtime: 'nodejs' }
+
+interface InsightPayload {
+  title: string
+  body: string
+  url: string
+}
 
 const MESSAGES: Record<
   string,
@@ -52,7 +63,33 @@ export default async function handler(
   const typeParam = req.query.type
   const type =
     (Array.isArray(typeParam) ? typeParam[0] : typeParam) ?? 'habits'
-  const message = MESSAGES[type] ?? MESSAGES.habits
+
+  // Insight branch: read whatever the app queued to the given slot. If the
+  // slot is empty, send NOTHING — per spec, this is silence, not a fallback
+  // nag. The generic MESSAGES paths keep firing on their own crons if the
+  // user wants a reminder.
+  let message: { title: string; body: string; url: string }
+  if (type === 'insight') {
+    const slotParam = req.query.slot
+    const slot =
+      (Array.isArray(slotParam) ? slotParam[0] : slotParam) ?? 'morning'
+    if (!ALLOWED_INSIGHT_SLOTS.has(slot)) {
+      res.status(400).json({ ok: false, reason: 'unknown_slot' })
+      return
+    }
+    const key = INSIGHT_SLOT_PREFIX + slot
+    const pending = (await kv.get(key)) as InsightPayload | null
+    if (!pending) {
+      // No insight queued — do nothing at all.
+      res.status(200).json({ ok: true, reason: 'no_pending' })
+      return
+    }
+    message = pending
+    // Consume the payload so we don't double-send if the cron re-fires.
+    await kv.del(key)
+  } else {
+    message = MESSAGES[type] ?? MESSAGES.habits
+  }
 
   const subscription = (await kv.get(KEY)) as PushSubscription | null
   if (!subscription) {

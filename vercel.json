@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/push?type=insight&slot=morning",
+      "schedule": "0 13 * * *"
+    },
+    {
       "path": "/api/push?type=tracking",
       "schedule": "30 13 * * *"
     },

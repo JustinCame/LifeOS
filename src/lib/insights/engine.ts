@@ -20,6 +20,7 @@ import type { Insight } from '../../db/types'
 import { startOfDay } from '../habits'
 import { TRIGGERS, makeContext, type Trigger, type TriggerResult } from './triggers'
 import { generateInsight } from './generate'
+import { queuePush } from './pushQueue'
 
 // Re-scan cadence. runTriggers('scheduled') is called from App.tsx on mount
 // and on visibilitychange; we skip if we ran within this window so tab focus
@@ -34,8 +35,11 @@ const NONE_HASHES_KEY = 'insights_none_hashes'
 const NONE_HASHES_CAP = 500
 
 // Daily budget for model-generated insights (Phase 1 demo doesn't count).
+// 12 covers a heavy day: morning_brief + 3-4 macro entries + workout_verdict
+// + a couple scheduled fitness triggers + occasional tdee_drift/food_sanity.
+// Users can override via the `insights_daily_cap` setting.
 const DAILY_CAP_KEY = 'insights_daily_cap'
-const DEFAULT_DAILY_CAP = 6
+const DEFAULT_DAILY_CAP = 12
 
 const SEVERITY_RANK: Record<Insight['severity'], number> = {
   info: 0,
@@ -230,6 +234,20 @@ async function tryGenerate(
     updatedAt: now,
   }
   const id = await db.insights.add(row)
+
+  // If this trigger declares a pushSlot, queue the insight for the next
+  // matching cron via /api/queue-push. Fire-and-forget: a queue failure
+  // must never block the in-app insight from rendering.
+  if (trigger.pushSlot) {
+    void queuePush({
+      slot: trigger.pushSlot,
+      title: outcome.insight.title,
+      body: outcome.insight.body,
+    }).catch(() => {
+      /* pushQueue already logs; passive layer must never break */
+    })
+  }
+
   return { ...row, id }
 }
 
