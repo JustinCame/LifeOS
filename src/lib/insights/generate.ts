@@ -42,9 +42,10 @@ appear inline in the app. The user did not ask you anything.
 - title: max 60 chars, no trailing punctuation.
 - body: 1-3 sentences, max 320 chars. Reference at least one exact number,
   date, or name from the data you were given.
-- Actions must be things the user can do right now from this screen. 0-2 of
-  them. Each action must have a "label" string and a "kind" that is one of
-  "navigate", "mutate", "dismiss", or "snooze". "payload" is optional.
+- actions: ALWAYS output an empty array []. Do not include action buttons.
+  Card action routing isn't wired up yet, so any button you invent would be
+  a dead link that frustrates the user. The card has its own dismiss (X);
+  don't duplicate it.
 - If nothing in this data would change what the user does today, output
   exactly: NONE
 - Emitting NONE is a success, not a failure. Most checks should produce NONE.
@@ -190,6 +191,11 @@ async function getApiKey(): Promise<string | null> {
 
 // Runtime schema validation. `output_config.format` should already guarantee
 // shape, but the passive layer never renders unvalidated model output.
+//
+// Actions are currently stripped at the validate boundary — even if Haiku
+// slips a "navigate" or "mutate" through the prompt guard, we drop it here.
+// When per-trigger action routing lands (Phase 5+), this becomes an
+// allowlist keyed to the trigger's declared supportedActionKinds.
 function validate(x: unknown): GeneratedInsight | null {
   if (!x || typeof x !== 'object') return null
   const obj = x as Record<string, unknown>
@@ -199,28 +205,7 @@ function validate(x: unknown): GeneratedInsight | null {
   if (title.length > 80) return null // hard cap; schema soft-limits at 60
   if (body.length > 400) return null
 
-  const rawActions = Array.isArray(obj.actions) ? obj.actions : []
+  // Actions are intentionally always empty for now — see PASSIVE_MODE_BLOCK.
   const actions: InsightAction[] = []
-  for (const a of rawActions) {
-    if (!a || typeof a !== 'object') continue
-    const ao = a as Record<string, unknown>
-    const label = typeof ao.label === 'string' ? ao.label.trim() : ''
-    const kind = ao.kind
-    if (!label) continue
-    if (
-      kind !== 'navigate' &&
-      kind !== 'mutate' &&
-      kind !== 'dismiss' &&
-      kind !== 'snooze'
-    ) {
-      continue
-    }
-    const payload =
-      ao.payload && typeof ao.payload === 'object'
-        ? (ao.payload as Record<string, unknown>)
-        : undefined
-    actions.push({ label, kind, payload })
-    if (actions.length >= 2) break
-  }
   return { title, body, actions }
 }

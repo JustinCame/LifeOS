@@ -15,7 +15,12 @@
 import { db } from '../../db'
 import { getMacroGoal, MEAL_ORDER, sumMacros, type MacroKey } from '../macros'
 import { startOfToday } from '../health'
-import type { InsightCoach, InsightSeverity, MealEntry } from '../../db/types'
+import type {
+  Food,
+  InsightCoach,
+  InsightSeverity,
+  MealEntry,
+} from '../../db/types'
 import type { ModelTier } from './generate'
 
 export interface TriggerContext {
@@ -157,6 +162,93 @@ async function checkMacroGap(
   ]
 }
 
+// ---- food_sanity ----
+//
+// Fires on-write when a food is added or updated. Catches silent data-entry
+// errors that would otherwise quietly corrupt macro tracking for months:
+//   (a) The calorie total doesn't match 4p+4c+9f (typo or wrong unit)
+//   (b) Per-100g values entered as per-serving (heuristic: kcal/g > ~9.5,
+//       which is above pure fat)
+//
+// Scans all foods and returns one TriggerResult per problematic food. The
+// engine's inputHash + subjectKey dedupe means a fixed food doesn't re-fire.
+
+function foodSanityIssues(food: Food): {
+  calorieMismatch: boolean
+  perServingSuspect: boolean
+  calcCalories: number
+  deviationPct: number
+  kcalPerGram: number | null
+} | null {
+  const { calories, protein, carbs, fat } = food.macros
+  const calcCalories = 4 * protein + 4 * carbs + 9 * fat
+  // Skip trivially small values — a 5-kcal condiment can mathematically look
+  // off by 40% without being a real error.
+  const deviationPct =
+    calories >= 30
+      ? (Math.abs(calories - calcCalories) / Math.max(1, calories)) * 100
+      : 0
+  const calorieMismatch = deviationPct > 15
+
+  // 9.5 kcal/g is the ceiling — pure fat is 9. Anything above suggests the
+  // grams field is wrong (or macros are per-100g while serving_grams is
+  // much smaller). Only checkable when servingGrams is set.
+  const kcalPerGram =
+    food.servingGrams && food.servingGrams > 0
+      ? calories / food.servingGrams
+      : null
+  const perServingSuspect = kcalPerGram !== null && kcalPerGram > 9.5
+
+  if (!calorieMismatch && !perServingSuspect) return null
+  return { calorieMismatch, perServingSuspect, calcCalories, deviationPct, kcalPerGram }
+}
+
+async function checkFoodSanity(
+  _ctx: TriggerContext,
+): Promise<TriggerResult[] | null> {
+  const foods = await db.foods.toArray()
+  const results: TriggerResult[] = []
+  for (const food of foods) {
+    if (food.id === undefined) continue
+    const issues = foodSanityIssues(food)
+    if (!issues) continue
+
+    const slice: Record<string, unknown> = {
+      food_name: food.name,
+      brand: food.brand ?? null,
+      serving_size: food.servingSize,
+      serving_grams: food.servingGrams ?? null,
+      macros: {
+        calories: Math.round(food.macros.calories),
+        protein: Math.round(food.macros.protein * 10) / 10,
+        carbs: Math.round(food.macros.carbs * 10) / 10,
+        fat: Math.round(food.macros.fat * 10) / 10,
+      },
+      calories_from_macros: Math.round(issues.calcCalories),
+      calorie_deviation_pct: Math.round(issues.deviationPct),
+      kcal_per_gram: issues.kcalPerGram
+        ? Math.round(issues.kcalPerGram * 10) / 10
+        : null,
+      issues_detected: [
+        issues.calorieMismatch ? 'calorie_math_mismatch' : null,
+        issues.perServingSuspect ? 'kcal_per_gram_above_pure_fat' : null,
+      ].filter(Boolean),
+    }
+
+    const promptHint = `The user just added or edited a food in their library and the numbers look off. Point out the specific issue (calorie math doesn't add up, or serving grams look wrong) in one sentence with the exact numbers. Suggest what to check. Don't lecture. If nothing's really wrong, respond NONE.`
+
+    results.push({
+      subjectKey: String(food.id),
+      // notable — the user should fix this, but nothing is urgent.
+      severity: 'notable',
+      slice,
+      promptHint,
+    })
+  }
+
+  return results.length > 0 ? results : null
+}
+
 export const TRIGGERS: Trigger[] = [
   {
     id: 'macro_gap',
@@ -168,6 +260,18 @@ export const TRIGGERS: Trigger[] = [
     // after that a new state may warrant a fresh look.
     ttlHours: 4,
     check: checkMacroGap,
+  },
+  {
+    id: 'food_sanity',
+    coach: 'macros',
+    surface: 'macros_header',
+    model: 'haiku',
+    cadence: 'on_write',
+    // Once dismissed, don't re-fire on the same food for a week. If the user
+    // edits the food to change the macros, the inputHash changes anyway and
+    // a new insight can fire.
+    ttlHours: 24 * 7,
+    check: checkFoodSanity,
   },
 ]
 

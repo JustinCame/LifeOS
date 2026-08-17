@@ -18,6 +18,14 @@ function firePassiveMacroTrigger(): void {
   })
 }
 
+// Fires when a food is added or edited. Separate from macro_gap so meal
+// logging doesn't do a food-library scan every time.
+function fireFoodSanityTrigger(): void {
+  void runTriggers('on_write', ['food_sanity']).catch(() => {
+    // Ignore — see above.
+  })
+}
+
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 
 export const MEAL_LABELS: Record<MealType, string> = {
@@ -149,6 +157,7 @@ export type NewFood = Omit<Food, 'id' | 'createdAt' | 'useCount' | 'lastUsedAt'>
 export async function addFood(food: NewFood): Promise<Food> {
   const createdAt = Date.now()
   const id = await db.foods.add({ ...food, createdAt, useCount: 0 })
+  fireFoodSanityTrigger()
   return { ...food, id: id as number, createdAt, useCount: 0 }
 }
 
@@ -161,6 +170,7 @@ export async function deleteFood(id: number): Promise<void> {
 // are preserved so history isn't disturbed.
 export async function updateFood(id: number, updates: NewFood): Promise<void> {
   await db.foods.update(id, updates)
+  fireFoodSanityTrigger()
 }
 
 // Look up a food in the library by barcode (UPC / EAN). Used when scanning:
