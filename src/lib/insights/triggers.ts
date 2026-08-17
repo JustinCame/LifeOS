@@ -640,13 +640,26 @@ async function checkTdeeDrift(
   const windowStart = ctx.today - 13 * dayMs // 14 day window incl today
 
   // Weight logs over the window, sorted by date.
-  const weightLogs = (
+  const rawWeights = (
     await db.health_logs
       .where('[date+type]')
       .between([windowStart, 'weight'], [ctx.today, 'weight'], true, true)
       .toArray()
   ).sort((a, b) => a.date - b.date)
-  if (weightLogs.length < 4) return null // need enough anchors for a trend
+  if (rawWeights.length < 4) return null // need enough anchors for a trend
+
+  // Data-quality guard #1: drop obvious outliers. Compute the median of the
+  // raw values, then filter anything more than 25% off — a real weight log
+  // won't be that far from the median inside a 14-day window, so anything
+  // that is almost certainly a data-entry error (decimal misplaced, wrong
+  // units, or a typo). Prevents the trigger from producing nonsense
+  // insights like "your TDEE is 41k kcal because your weight halved".
+  const sortedValues = [...rawWeights].map((w) => w.value).sort((a, b) => a - b)
+  const median = sortedValues[Math.floor(sortedValues.length / 2)]
+  const weightLogs = rawWeights.filter(
+    (w) => Math.abs(w.value - median) / Math.max(1, median) <= 0.25,
+  )
+  if (weightLogs.length < 4) return null // too many outliers to trust
 
   // Meal entries over the window. Compute per-day calorie totals.
   const meals = await db.meal_entries
@@ -669,6 +682,13 @@ async function checkTdeeDrift(
   const firstAvg = avg(firstHalf)
   const secondAvg = avg(secondHalf)
   const weightDeltaLb = secondAvg - firstAvg
+
+  // Data-quality guard #2: even after outlier filtering, refuse to run TDEE
+  // math on physically implausible deltas. Losing/gaining >10% of body
+  // weight in 14 days isn't real — it's a data problem the model can't
+  // helpfully comment on.
+  if (Math.abs(weightDeltaLb) / Math.max(1, firstAvg) > 0.1) return null
+
   const daysBetween = 7 // midpoint-to-midpoint approximation
 
   // 1 lb body-weight change ≈ 3500 kcal. Positive delta = user is gaining,
