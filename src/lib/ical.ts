@@ -235,6 +235,83 @@ function parseIcs(ics: string, label?: string): CalEvent[] {
   return out
 }
 
+// Coerce whatever the user pasted into a canonical Google Calendar iCal
+// URL, if we can. Handles:
+//   1. `webcal://…` schemes (mobile OS "Add to Calendar" links)
+//   2. Existing `.ics` URLs (private or public) — passed through
+//   3. Public embed URLs like `https://calendar.google.com/calendar/embed?src=…`
+//   4. Full <iframe …> embed code copied from Calendar settings
+//   5. Older `?cid=<base64>` sharing links
+//   6. Bare calendar IDs (looks like an email)
+// Returns null if we can't recognize anything.
+export function normalizeToICalUrl(input: string): string | null {
+  let s = input.trim()
+  if (!s) return null
+
+  // (1) webcal:// → https://. Same content, different scheme.
+  if (/^webcal:\/\//i.test(s)) {
+    s = 'https://' + s.slice(9)
+  }
+
+  // (4) Extract src from an <iframe> embed block if the user pasted the
+  // whole HTML snippet.
+  const iframeMatch = s.match(/<iframe[^>]+src=["']([^"']+)["']/i)
+  if (iframeMatch) s = iframeMatch[1]
+  // Iframe copies often use &amp;; decode so URL parsing works.
+  s = s.replace(/&amp;/g, '&')
+
+  // (2) Already an .ics URL in the shape we expect? Pass through.
+  if (
+    /^https:\/\/calendar\.google\.com\/calendar\/ical\/[^/]+\/(?:private-[a-z0-9]+|public)\/(?:basic|full)\.ics$/i.test(
+      s,
+    )
+  ) {
+    return s
+  }
+
+  // (3, 5) Google Calendar URL — try to extract a calendar id from
+  // known query-param shapes.
+  try {
+    const url = new URL(s)
+    if (url.hostname === 'calendar.google.com') {
+      // /calendar/embed?src=<id>
+      const src = url.searchParams.get('src')
+      if (src) return publicIcsFor(src)
+      // /calendar/u/0?cid=<base64 id>
+      const cid = url.searchParams.get('cid')
+      if (cid) {
+        try {
+          const decoded = atob(cid)
+          if (decoded) return publicIcsFor(decoded)
+        } catch {
+          // not base64 — fall through
+        }
+      }
+    }
+  } catch {
+    // not a URL — could still be a bare id below
+  }
+
+  // (6) Bare calendar id — Google's ids are email-like (either a Gmail
+  // address for personal calendars or a group id for shared ones).
+  // Loose check: contains @ and at least one dot, no whitespace, no
+  // slashes, no leading scheme.
+  if (
+    /^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(s) &&
+    !/^https?:/i.test(s)
+  ) {
+    return publicIcsFor(s)
+  }
+
+  return null
+}
+
+function publicIcsFor(calendarId: string): string {
+  return `https://calendar.google.com/calendar/ical/${encodeURIComponent(
+    calendarId,
+  )}/public/basic.ics`
+}
+
 function cryptoIshId(): string {
   const arr = new Uint8Array(8)
   crypto.getRandomValues(arr)

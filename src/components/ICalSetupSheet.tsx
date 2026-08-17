@@ -7,6 +7,7 @@ import {
   clearLegacyICalSetting,
   getICalSources,
   invalidateICalCache,
+  normalizeToICalUrl,
   type ICalSource,
 } from "../lib/ical";
 
@@ -65,11 +66,6 @@ export default function ICalSetupSheet({ onClose }: Props) {
     });
   }, [hydrated]);
 
-  const looksLikeGoogleICal = (url: string): boolean =>
-    /^https:\/\/calendar\.google\.com\/calendar\/ical\/[^/]+\/(?:private-[a-z0-9]+|public)\/(?:basic|full)\.ics$/i.test(
-      url.trim(),
-    );
-
   const updateRow = (id: number, patch: Partial<{ label: string; url: string }>) => {
     setRows((cur) =>
       cur.map((r) => (r.id === id ? { ...r, ...patch } : r)),
@@ -98,7 +94,13 @@ export default function ICalSetupSheet({ onClose }: Props) {
       (r) => r.url.trim().length > 0 || r.label.trim().length > 0,
     );
 
-    // Validate URLs.
+    // Validate + normalize each row's input. Users can paste the .ics
+    // URL, the public web URL, an <iframe> embed code, a webcal://
+    // link, or a bare calendar id — normalizeToICalUrl rewrites all of
+    // them into the canonical .ics form that our server allowlist
+    // accepts. If any row can't be parsed, bail early with a specific
+    // error naming which one.
+    const normalized: ICalSource[] = [];
     for (const r of nonEmpty) {
       const url = r.url.trim();
       if (!url) {
@@ -109,22 +111,24 @@ export default function ICalSetupSheet({ onClose }: Props) {
         );
         return;
       }
-      if (!looksLikeGoogleICal(url)) {
+      const canonical = normalizeToICalUrl(url);
+      if (!canonical) {
         setError(
           r.label
-            ? `"${r.label}" doesn't look like a Google iCal URL.`
-            : "One of your URLs doesn't look like a Google iCal URL.",
+            ? `"${r.label}" doesn't look like a Google Calendar URL. Try the .ics URL, the public share URL, an embed code, or the calendar's id.`
+            : "One of your URLs isn't a recognizable Google Calendar link. Try the .ics URL, the public share URL, an embed code, or the calendar's id.",
         );
         return;
       }
+      normalized.push({
+        url: canonical,
+        label: r.label.trim() || undefined,
+      });
     }
 
     setError(null);
     setSaving(true);
-    const payload: ICalSource[] = nonEmpty.map((r) => ({
-      url: r.url.trim(),
-      label: r.label.trim() || undefined,
-    }));
+    const payload = normalized;
     await setSetting(ICAL_URLS_SETTING, payload);
     // Best-effort cleanup of the legacy single-URL setting so we don't
     // have two potentially-conflicting sources of truth on device.
@@ -168,10 +172,18 @@ export default function ICalSetupSheet({ onClose }: Props) {
 
         <div className="flex-1 overflow-y-auto px-[18px] pb-8 [&::-webkit-scrollbar]:hidden">
           <p className="mb-3 text-sm leading-relaxed text-fg">
-            Add up to {MAX_ICAL_SOURCES} Google Calendar iCal feeds —
+            Add up to {MAX_ICAL_SOURCES} Google Calendar feeds —
             personal, school, holidays, whatever. No sign-in, no expiry.
             Labels are optional and show up as a prefix on events so you
             can tell them apart.
+          </p>
+          <p className="mb-3 text-xs leading-relaxed text-muted">
+            Paste anything Google gives you for the calendar: the{" "}
+            <span className="font-mono text-fg">.ics</span> URL, a public
+            share URL, an embed code, a{" "}
+            <span className="font-mono text-fg">webcal://</span> link, or
+            just the calendar's id (looks like an email). We normalize it
+            server-side.
           </p>
 
           {/* Row list */}
@@ -203,7 +215,7 @@ export default function ICalSetupSheet({ onClose }: Props) {
                 <textarea
                   value={row.url}
                   onChange={(e) => updateRow(row.id, { url: e.target.value })}
-                  placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
+                  placeholder=".ics URL, embed code, share link, or calendar id"
                   rows={3}
                   className="block w-full min-w-0 resize-none rounded-[8px] border border-border bg-bg px-2.5 py-2 font-mono text-[12px] outline-none placeholder:text-subtle"
                 />
@@ -260,7 +272,7 @@ export default function ICalSetupSheet({ onClose }: Props) {
                 </span>
                 {" — "}
                 <span className="text-muted">
-                  calendar.google.com. The URL setting isn't in the
+                  calendar.google.com. The URL settings aren't in the
                   mobile Calendar app.
                 </span>
               </li>
@@ -269,20 +281,27 @@ export default function ICalSetupSheet({ onClose }: Props) {
                 <span className="font-medium">Settings and sharing</span>.
               </li>
               <li>
-                Scroll to{" "}
+                For a{" "}
+                <span className="font-medium">calendar you own</span>:
+                scroll to{" "}
                 <span className="font-medium">Integrate calendar</span>{" "}
-                → find "Secret address in iCal format" (private calendars)
-                or "Public address in iCal format" (holidays, subscribed
-                calendars).
+                and copy either "Secret address in iCal format" (private)
+                or "Public address in iCal format" (public).
               </li>
               <li>
-                Copy the URL (ends with{" "}
-                <span className="font-mono">.ics</span>) and paste it
-                above.
+                For a{" "}
+                <span className="font-medium">
+                  subscribed calendar (SUNY, holidays, etc.)
+                </span>{" "}
+                you don't see an iCal URL for: copy the{" "}
+                <span className="font-medium">Public URL to this calendar</span>{" "}
+                or the whole <span className="font-mono">&lt;iframe…&gt;</span>{" "}
+                embed code from "Integrate calendar". Paste it above and
+                we'll convert it.
               </li>
               <li className="text-muted">
-                Repeat per calendar. If a secret URL leaks, click "Reset"
-                next to it in Google Calendar — the old one dies
+                Repeat per calendar. If a secret URL ever leaks, click
+                "Reset" next to it in Google Calendar — the old one dies
                 immediately.
               </li>
             </ol>
