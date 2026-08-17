@@ -359,6 +359,12 @@ export default function Home({
         <div className="py-3 text-center font-mono text-[11px] tracking-[0.04em] text-subtle">
           {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
         </div>
+
+        {/* Build tag — bottom-right of the scroll content. Lets us tell at a
+            glance whether the latest deploy has landed on the phone. */}
+        <div className="pb-1 text-right font-mono text-[10px] tracking-[0.04em] text-subtle">
+          {__BUILD_TIME__} · {__BUILD_COMMIT__}
+        </div>
       </div>
 
       {programEditorOpen && (
