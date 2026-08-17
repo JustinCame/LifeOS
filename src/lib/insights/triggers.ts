@@ -15,6 +15,21 @@
 import { db } from '../../db'
 import { getMacroGoal, MEAL_ORDER, sumMacros, type MacroKey } from '../macros'
 import { startOfToday } from '../health'
+import {
+  computeFatigue,
+  MUSCLE_LABELS,
+  rankFatigue,
+  recoveryDays,
+  type MuscleGroup,
+} from '../fatigue'
+import {
+  bestSetForExercise,
+  exerciseSessions,
+  isSetCompleted,
+  totalReps,
+  totalVolume,
+} from '../fitness'
+import { PROGRAM, todaysLift } from '../userProgram'
 import type {
   Food,
   InsightCoach,
@@ -249,6 +264,361 @@ async function checkFoodSanity(
   return results.length > 0 ? results : null
 }
 
+// ---- workout_verdict ----
+//
+// Fires on-write when a workout gets `completedAt` set (WorkoutSession's
+// Finish button). Identifies the just-finished workout by scanning for
+// workouts completed within the last minute — the on_write fire is
+// synchronous with the completion so this is safe.
+
+async function checkWorkoutVerdict(
+  _ctx: TriggerContext,
+): Promise<TriggerResult[] | null> {
+  const cutoff = Date.now() - 60_000
+  const recent = (await db.workouts.toArray()).filter(
+    (w) => w.completedAt !== undefined && w.completedAt >= cutoff,
+  )
+  if (recent.length === 0) return null
+  // Newest first — should be at most one in practice.
+  recent.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+  const w = recent[0]
+  if (w.id === undefined) return null
+
+  // Previous session with the same template name — that's what we compare
+  // against. Falls back to null if this is the first time doing this template.
+  const prevCandidates = (await db.workouts.toArray()).filter(
+    (o) => o.completedAt !== undefined && o.name === w.name && o.id !== w.id,
+  )
+  prevCandidates.sort((a, b) => b.date - a.date)
+  const prev = prevCandidates[0]
+
+  const summarizeExercises = (workout: typeof w) =>
+    workout.exercises
+      .map((ex) => {
+        const done = ex.sets.filter(isSetCompleted)
+        if (done.length === 0) return null
+        // Top set by weight × reps (rough tonnage per set).
+        const top = done.reduce((a, b) =>
+          a.weight * a.reps >= b.weight * b.reps ? a : b,
+        )
+        return {
+          name: ex.exerciseName,
+          set_count: done.length,
+          top_set: {
+            reps: top.reps,
+            weight: top.weight,
+            rpe: top.rpe ?? null,
+          },
+        }
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+
+  const currVol = Math.round(totalVolume(w))
+  const currReps = totalReps(w)
+
+  const slice: Record<string, unknown> = {
+    workout: {
+      name: w.name,
+      duration_min: w.durationSec ? Math.round(w.durationSec / 60) : null,
+      volume_lb: currVol,
+      total_reps: currReps,
+      exercises: summarizeExercises(w),
+    },
+    previous_session: prev
+      ? {
+          days_ago: Math.max(
+            1,
+            Math.round((w.date - prev.date) / 86_400_000),
+          ),
+          duration_min: prev.durationSec
+            ? Math.round(prev.durationSec / 60)
+            : null,
+          volume_lb: Math.round(totalVolume(prev)),
+          total_reps: totalReps(prev),
+          exercises: summarizeExercises(prev),
+        }
+      : null,
+    volume_delta_lb: prev ? currVol - Math.round(totalVolume(prev)) : null,
+    reps_delta: prev ? currReps - totalReps(prev) : null,
+  }
+
+  const promptHint = prev
+    ? `The user just finished a ${w.name} workout. Give a short verdict comparing to their previous ${w.name} session. Call out PRs, top-set changes, and volume/rep deltas with exact numbers. If nothing changed meaningfully, respond NONE.`
+    : `The user just finished a ${w.name} workout — first time doing this template. Give a short baseline verdict, calling out the strongest lifts with exact top sets. If nothing worth flagging, respond NONE.`
+
+  return [
+    {
+      subjectKey: `workout:${w.id}`,
+      severity: 'notable',
+      slice,
+      promptHint,
+    },
+  ]
+}
+
+// ---- lift_stalled ----
+//
+// Scans every exercise the user has done 3+ times. Flags when the top-set
+// weight has been identical for the last 3 sessions OR when top-set reps
+// have declined for 2 sessions in a row. One TriggerResult per stalled
+// exercise; the engine's inputHash dedupe handles per-exercise re-fire.
+
+async function checkLiftStalled(
+  _ctx: TriggerContext,
+): Promise<TriggerResult[] | null> {
+  const allWorkouts = (await db.workouts.toArray()).filter(
+    (w) => w.completedAt !== undefined,
+  )
+  const exercises = await db.exercises.toArray()
+  const results: TriggerResult[] = []
+
+  for (const ex of exercises) {
+    if (ex.id === undefined) continue
+    const sessions = exerciseSessions(allWorkouts, ex.id)
+    if (sessions.length < 3) continue
+
+    const last3 = sessions.slice(0, 3)
+    const weightStalled = last3.every(
+      (s) => s.topSet.weight === last3[0].topSet.weight,
+    )
+    // Reps down in two consecutive sessions (three sessions total: newest,
+    // middle, older-than-middle where newest < middle < older).
+    const repsDown =
+      sessions.length >= 3 &&
+      sessions[0].topSet.reps < sessions[1].topSet.reps &&
+      sessions[1].topSet.reps < sessions[2].topSet.reps
+
+    if (!weightStalled && !repsDown) continue
+
+    // Rep range prescription from the program (may not have one).
+    const programSlot = PROGRAM.flatMap((d) => d.slots).find(
+      (s) => s.name === ex.name,
+    )
+
+    const slice: Record<string, unknown> = {
+      exercise_name: ex.name,
+      pattern: weightStalled
+        ? 'top_weight_unchanged_3_sessions'
+        : 'top_reps_declined_2_sessions',
+      last_sessions: sessions.slice(0, 8).map((s) => ({
+        days_ago: Math.max(0, Math.round((Date.now() - s.date) / 86_400_000)),
+        top_reps: s.topSet.reps,
+        top_weight: s.topSet.weight,
+        top_e1rm: Math.round(s.topE1RM),
+      })),
+      programmed_rep_range: programSlot
+        ? {
+            low: programSlot.repLow ?? null,
+            high: programSlot.repHigh ?? null,
+            sets: programSlot.sets,
+          }
+        : null,
+    }
+
+    const promptHint = `The user's ${ex.name} has stalled: ${
+      weightStalled
+        ? 'same top weight for 3 sessions in a row'
+        : 'top reps declined 2 sessions in a row'
+    }. Suggest one specific move — add reps at the same weight, deload ~10%, swap for an alternative, or take a rest week. Use exact numbers from their history.`
+
+    results.push({
+      subjectKey: `exercise:${ex.id}`,
+      severity: 'notable',
+      slice,
+      promptHint,
+    })
+  }
+
+  return results.length > 0 ? results : null
+}
+
+// ---- fatigue_interpret ----
+//
+// If any muscle group is above 80% fatigue AND today's or tomorrow's
+// programmed session hits it, describe the conflict. Uses the deterministic
+// computeFatigue / rankFatigue helpers so the model doesn't have to guess.
+
+async function checkFatigueInterpret(
+  ctx: TriggerContext,
+): Promise<TriggerResult[] | null> {
+  const allWorkouts = (await db.workouts.toArray()).filter(
+    (w) => w.completedAt !== undefined,
+  )
+  if (allWorkouts.length === 0) return null
+
+  const exercises = await db.exercises.toArray()
+  const exLib = new Map(
+    exercises
+      .filter((e): e is typeof e & { id: number } => e.id !== undefined)
+      .map((e) => [e.id, e]),
+  )
+
+  const fatigue = computeFatigue(allWorkouts, exLib)
+  const overheated = rankFatigue(fatigue).filter((r) => r.pct > 80)
+  if (overheated.length === 0) return null
+
+  // Which template is next? Today, else tomorrow. If both are rest, no
+  // conflict to flag.
+  let session = todaysLift(ctx.now)
+  let dayLabel: 'today' | 'tomorrow' = 'today'
+  if (!session) {
+    const tomorrow = new Date(ctx.now.getTime() + 86_400_000)
+    session = todaysLift(tomorrow)
+    dayLabel = 'tomorrow'
+  }
+  if (!session) return null
+
+  const dayPlan = PROGRAM.find((d) => d.key === session!.key)
+  if (!dayPlan) return null
+
+  const hitGroups = new Set<string>()
+  for (const slot of dayPlan.slots) {
+    for (const mg of slot.muscleGroups) hitGroups.add(mg)
+  }
+
+  const conflicts = overheated.filter((r) => hitGroups.has(r.group))
+  if (conflicts.length === 0) return null
+
+  // Last 3 nights of sleep, if any logged. Model uses it to weigh advice.
+  const dayMs = 86_400_000
+  const threeDaysAgo = ctx.today - 3 * dayMs
+  const sleepLogs = await db.health_logs
+    .where('[date+type]')
+    .between([threeDaysAgo, 'sleep'], [ctx.today, 'sleep'], true, true)
+    .toArray()
+
+  const slice: Record<string, unknown> = {
+    conflict_groups: conflicts.map((c) => ({
+      group: MUSCLE_LABELS[c.group],
+      fatigue_pct: c.pct,
+      estimated_recovery_days: recoveryDays(c.pct),
+    })),
+    upcoming_session: {
+      name: session.templateName,
+      day: dayLabel,
+      hits_groups: Array.from(hitGroups)
+        .filter((g): g is MuscleGroup => g in MUSCLE_LABELS)
+        .map((g) => MUSCLE_LABELS[g]),
+    },
+    recent_sleep_hours: sleepLogs
+      .sort((a, b) => a.date - b.date)
+      .map((l) => ({
+        days_ago: Math.round((ctx.today - l.date) / dayMs),
+        hours: l.value,
+      })),
+  }
+
+  const promptHint = `The user has a fatigue conflict: ${conflicts
+    .map((c) => `${MUSCLE_LABELS[c.group]} at ${c.pct}%`)
+    .join(', ')}, with ${session.templateName} scheduled ${dayLabel}. Suggest one specific move — swap the session, deload volume on the conflicting lifts, take a rest day. If ambiguous, respond NONE.`
+
+  return [
+    {
+      // One insight per unique combo of conflicting groups.
+      subjectKey: conflicts
+        .map((c) => c.group)
+        .sort()
+        .join(','),
+      severity: 'notable',
+      slice,
+      promptHint,
+    },
+  ]
+}
+
+// ---- sleep_before_heavy ----
+//
+// Two nights under 6.5h AND today's programmed session contains a compound
+// barbell lift. Bar speed / technique degrade meaningfully at this sleep
+// debt on compounds — worth surfacing.
+
+// Compound barbell lifts from the STARTER_EXERCISES set + PROGRAM main lifts.
+// Anything not in this list is treated as an accessory (no warning triggered).
+const COMPOUND_LIFTS = new Set([
+  'Bench Press',
+  'Back Squat',
+  'Deadlift',
+  'Overhead Press',
+  'Barbell Row',
+  'Trap Bar Deadlift',
+  'Romanian Deadlift',
+  'Front Squat',
+  'Hip Thrust',
+])
+
+async function checkSleepBeforeHeavy(
+  ctx: TriggerContext,
+): Promise<TriggerResult[] | null> {
+  const dayMs = 86_400_000
+  const lastNightKey = ctx.today - dayMs
+  const twoNightsAgoKey = ctx.today - 2 * dayMs
+
+  const sleepLogs = await db.health_logs
+    .where('type')
+    .equals('sleep')
+    .toArray()
+  const lastNight = sleepLogs.find((l) => l.date === lastNightKey)
+  const twoNightsAgo = sleepLogs.find((l) => l.date === twoNightsAgoKey)
+  if (!lastNight || !twoNightsAgo) return null
+  if (lastNight.value >= 6.5 || twoNightsAgo.value >= 6.5) return null
+
+  const today = todaysLift(ctx.now)
+  if (!today) return null // rest day
+  const dayPlan = PROGRAM.find((d) => d.key === today.key)
+  if (!dayPlan) return null
+  const compounds = dayPlan.slots.filter((s) => COMPOUND_LIFTS.has(s.name))
+  if (compounds.length === 0) return null
+
+  // Last performance on each compound (best set on record).
+  const allWorkouts = (await db.workouts.toArray()).filter(
+    (w) => w.completedAt !== undefined,
+  )
+  const exercises = await db.exercises.toArray()
+  const lastPerformance: Record<
+    string,
+    { top_weight: number; top_reps: number; e1rm: number; days_ago: number }
+  > = {}
+  for (const c of compounds) {
+    const ex = exercises.find((e) => e.name === c.name)
+    if (!ex?.id) continue
+    const best = bestSetForExercise(allWorkouts, ex.id)
+    if (best) {
+      lastPerformance[c.name] = {
+        top_weight: best.weight,
+        top_reps: best.reps,
+        e1rm: Math.round(best.e1rm),
+        days_ago: Math.max(
+          0,
+          Math.round((Date.now() - best.date) / dayMs),
+        ),
+      }
+    }
+  }
+
+  const slice: Record<string, unknown> = {
+    last_2_nights_sleep: [
+      { night: 'last night', hours: lastNight.value },
+      { night: '2 nights ago', hours: twoNightsAgo.value },
+    ],
+    todays_session: today.templateName,
+    compound_lifts_programmed: compounds.map((c) => c.name),
+    best_performance_on_compounds: lastPerformance,
+  }
+
+  const promptHint = `The user slept ${lastNight.value}h and ${twoNightsAgo.value}h the last two nights (both under 6.5h) and today's ${today.templateName} programs compound lifts (${compounds.map((c) => c.name).join(', ')}). Bar speed and technique degrade meaningfully at this sleep debt. Suggest one specific adjustment: cap intensity, accessories only, swap the session. Use exact numbers.`
+
+  return [
+    {
+      // One per (day, session) so the same warning doesn't refire tomorrow
+      // if the same conditions persist — new date, new subjectKey.
+      subjectKey: `${ctx.today}:${today.key}`,
+      severity: 'notable',
+      slice,
+      promptHint,
+    },
+  ]
+}
+
 export const TRIGGERS: Trigger[] = [
   {
     id: 'macro_gap',
@@ -272,6 +642,48 @@ export const TRIGGERS: Trigger[] = [
     // a new insight can fire.
     ttlHours: 24 * 7,
     check: checkFoodSanity,
+  },
+  {
+    id: 'workout_verdict',
+    coach: 'fitness',
+    surface: 'fitness_top',
+    // Sonnet — comparison + numeric reasoning benefits from more capability
+    // than the two-sentence macros nudges.
+    model: 'sonnet',
+    cadence: 'on_write',
+    // One verdict per workout; workoutId in subjectKey means each finish
+    // gets its own regardless of dismissal history.
+    ttlHours: 24,
+    check: checkWorkoutVerdict,
+  },
+  {
+    id: 'lift_stalled',
+    coach: 'fitness',
+    surface: 'fitness_top',
+    model: 'sonnet',
+    cadence: 'scheduled',
+    // Roughly one workout cycle — long enough that the user has a chance to
+    // act before the same insight resurfaces.
+    ttlHours: 24 * 3,
+    check: checkLiftStalled,
+  },
+  {
+    id: 'fatigue_interpret',
+    coach: 'fitness',
+    surface: 'fitness_fatigue',
+    model: 'sonnet',
+    cadence: 'scheduled',
+    ttlHours: 24,
+    check: checkFatigueInterpret,
+  },
+  {
+    id: 'sleep_before_heavy',
+    coach: 'fitness',
+    surface: 'fitness_top',
+    model: 'sonnet',
+    cadence: 'scheduled',
+    ttlHours: 24,
+    check: checkSleepBeforeHeavy,
   },
 ]
 

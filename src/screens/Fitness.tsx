@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Card, Section } from "../components/primitives";
 import WorkoutCalendar from "../components/WorkoutCalendar";
+import InsightCard from "../components/InsightCard";
 import { db } from "../db";
 import type {
   CardioSession,
   Exercise,
+  InsightSeverity,
   Workout,
 } from "../db/types";
+import { markSeen } from "../lib/insights/engine";
 import {
   cloneWorkout,
   countPRsInWorkout,
@@ -81,6 +84,50 @@ export default function Fitness() {
       db.cardio_sessions.orderBy("date").reverse().toArray(),
     ) ?? [];
 
+  // --- Insights (passive layer, surfaces: fitness_top + fitness_fatigue) ---
+  // Single query, split by surface client-side. Sorted urgent → notable →
+  // info then recency; max 2 per surface (same as Home + Macros).
+  const insightBuckets =
+    useLiveQuery(async () => {
+      const rows = await db.insights
+        .where("status")
+        .anyOf(["new", "seen"])
+        .toArray();
+      const rank: Record<InsightSeverity, number> = {
+        urgent: 2,
+        notable: 1,
+        info: 0,
+      };
+      const sortAndCap = (surface: string) =>
+        rows
+          .filter((i) => i.surface === surface)
+          .sort((a, b) => {
+            const s = rank[b.severity] - rank[a.severity];
+            return s !== 0 ? s : b.createdAt - a.createdAt;
+          })
+          .slice(0, 2);
+      return {
+        top: sortAndCap("fitness_top"),
+        fatigue: sortAndCap("fitness_fatigue"),
+      };
+    }, []) ?? { top: [], fatigue: [] };
+  const fitnessTopInsights = insightBuckets.top;
+  const fitnessFatigueInsights = insightBuckets.fatigue;
+
+  const insightsSignature = [
+    ...fitnessTopInsights,
+    ...fitnessFatigueInsights,
+  ]
+    .map((i) => `${i.id}:${i.status}`)
+    .join(",");
+  useEffect(() => {
+    const newIds = [...fitnessTopInsights, ...fitnessFatigueInsights]
+      .filter((i) => i.status === "new" && i.id !== undefined)
+      .map((i) => i.id!);
+    if (newIds.length > 0) void markSeen(newIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insightsSignature]);
+
   // Tap Start on the dial: resume active if any; else run the matching PPLUL
   // template if one is installed; else fall back to an empty workout named
   // after the lift (rest days log a blank workout).
@@ -140,6 +187,17 @@ export default function Fitness() {
           </div>
         </header>
 
+        {/* Insights (passive layer). Silent when nothing's worth saying —
+            workout_verdict fires here right after Finish; lift_stalled and
+            sleep_before_heavy show up on scheduled runs. */}
+        {fitnessTopInsights.length > 0 && (
+          <div className="mb-[22px] space-y-2">
+            {fitnessTopInsights.map((i) => (
+              <InsightCard key={i.id} insight={i} />
+            ))}
+          </div>
+        )}
+
         {/* Heatmap */}
         <div className="mb-3">
           <WorkoutCalendar
@@ -157,6 +215,15 @@ export default function Fitness() {
         />
 
         <FatigueCard fatigue={fatigue} />
+
+        {/* Insights below FatigueCard — fatigue_interpret targets this slot. */}
+        {fitnessFatigueInsights.length > 0 && (
+          <div className="mb-[22px] space-y-2">
+            {fitnessFatigueInsights.map((i) => (
+              <InsightCard key={i.id} insight={i} />
+            ))}
+          </div>
+        )}
 
         {/* Cardio — weekly tile always visible, log + calendar collapse. */}
         <div className="mb-[22px]">

@@ -16,6 +16,7 @@ import {
 import SwapSheet from "./SwapSheet";
 import RestTimer from "./RestTimer";
 import ExerciseDemoScreen from "../screens/ExerciseDemoScreen";
+import { runTriggers } from "../lib/insights/engine";
 
 interface Props {
   workoutId: number;
@@ -123,6 +124,11 @@ export default function WorkoutSession({ workoutId, onClose }: Props) {
       return;
     }
     await finishWorkout(workoutId);
+    // Fire the passive-insight verdict trigger. Fire-and-forget: if the API
+    // is down or the trigger crashes, the workout still ends cleanly.
+    void runTriggers("on_write", ["workout_verdict"]).catch(() => {
+      /* passive layer must never break the finish flow */
+    });
     close();
   };
 
