@@ -17,8 +17,10 @@ import HabitRingRow from "../components/HabitRingRow";
 import DailyPromptCard from "../components/DailyPromptCard";
 import InsightCard from "../components/InsightCard";
 import InsightsHistorySheet from "../components/InsightsHistorySheet";
+import ICalSetupSheet from "../components/ICalSetupSheet";
 import ProgramEditorScreen from "./ProgramEditorScreen";
 import { markSeen } from "../lib/insights/engine";
+import { ICAL_URL_SETTING } from "../lib/ical";
 import type { InsightSeverity } from "../db/types";
 import {
   disableNotifications,
@@ -42,6 +44,11 @@ export default function Home({
   const [reviewOpen, setReviewOpen] = useState(false);
   const [programEditorOpen, setProgramEditorOpen] = useState(false);
   const [insightHistoryOpen, setInsightHistoryOpen] = useState(false);
+  const [icalSetupOpen, setIcalSetupOpen] = useState(false);
+  const icalUrlSetting = useLiveQuery(() =>
+    db.settings.get(ICAL_URL_SETTING),
+  );
+  const icalConfigured = !!(icalUrlSetting?.value as string | undefined);
   // Total insights ever generated (minus the Phase 1 demo). Powers the
   // "Insight history · N" row label so the user sees whether there's
   // anything worth opening it for.
@@ -345,6 +352,31 @@ export default function Home({
         <Section title="Settings">
           <div className="space-y-2">
             <NotificationsRow />
+            <button
+              onClick={() => setIcalSetupOpen(true)}
+              className="flex w-full items-center gap-3 rounded-[16px] border border-border bg-surface px-3.5 py-3 text-left hover:border-border-strong active:scale-[0.99]"
+            >
+              <span
+                className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-full ${
+                  icalConfigured
+                    ? "bg-accent-soft text-accent-fg"
+                    : "bg-surface-2 text-subtle"
+                }`}
+              >
+                <CalendarIconSmall />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-base leading-tight text-fg">
+                  Calendar link
+                </div>
+                <div className="mt-0.5 font-mono text-[11px] text-muted">
+                  {icalConfigured
+                    ? "iCal URL configured — reads without sign-in"
+                    : "Add a Google iCal URL to avoid the 1-hour sign-out"}
+                </div>
+              </div>
+              <span className="text-subtle">›</span>
+            </button>
             <BackupRow onClick={onOpenBackup} />
             <button
               onClick={() => setInsightHistoryOpen(true)}
@@ -406,6 +438,10 @@ export default function Home({
 
       {insightHistoryOpen && (
         <InsightsHistorySheet onClose={() => setInsightHistoryOpen(false)} />
+      )}
+
+      {icalSetupOpen && (
+        <ICalSetupSheet onClose={() => setIcalSetupOpen(false)} />
       )}
     </div>
   );
@@ -545,6 +581,28 @@ function BackupIcon() {
         strokeWidth="1.4"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CalendarIconSmall() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect
+        x="2.5"
+        y="4"
+        width="11"
+        height="9.5"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+      />
+      <path
+        d="M2.5 7h11M5.5 2.5v3M10.5 2.5v3"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
       />
     </svg>
   );
