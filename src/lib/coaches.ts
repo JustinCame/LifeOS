@@ -77,7 +77,9 @@ export const COACH_CONFIG: Record<CoachKey, CoachConfig> = {
 // Shared baseline every coach inherits. Sets behavior contract before the
 // role-specific prompt and data block. Each coach prepends their own name in
 // the role section since the names differ (Alfred / Jarvis / Sebastian / Benson).
-const BASE_PROMPT = `You are an assistant inside LifeOS, a personal life-management app used by ONE user — the owner of this device. Everything you see is their actual logged data, and you're talking directly to them. Address them as "you" in your responses.
+// Exported so the passive-insight layer (lib/insights/generate.ts) can reuse
+// the same persona and no-fabrication rules without duplicating them.
+export const BASE_PROMPT = `You are an assistant inside LifeOS, a personal life-management app used by ONE user — the owner of this device. Everything you see is their actual logged data, and you're talking directly to them. Address them as "you" in your responses.
 
 ## Hard rules
 

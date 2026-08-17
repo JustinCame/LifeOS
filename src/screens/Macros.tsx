@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Card, Section } from "../components/primitives";
 import FoodPickerSheet from "../components/FoodPickerSheet";
@@ -7,9 +7,11 @@ import RecipeLibrarySheet from "../components/RecipeLibrarySheet";
 import MealEntryEditSheet from "../components/MealEntryEditSheet";
 import QuickAddSheet from "../components/QuickAddSheet";
 import ExportSheet from "../components/ExportSheet";
+import InsightCard from "../components/InsightCard";
 import { exportMacrosText } from "../lib/exports";
 import { db } from "../db";
-import type { MealEntry } from "../db/types";
+import type { InsightSeverity, MealEntry } from "../db/types";
+import { markSeen } from "../lib/insights/engine";
 import { startOfToday } from "../lib/health";
 import {
   MEAL_LABELS,
@@ -80,6 +82,40 @@ export default function Macros() {
 
   const foodCount = useLiveQuery(() => db.foods.count()) ?? 0;
   const recipeCount = useLiveQuery(() => db.recipes.count()) ?? 0;
+
+  // --- Insights (passive layer, surface: macros_header) ---
+  // Only render on today (past-day views are read-only; insights don't apply).
+  const insights =
+    useLiveQuery(async () => {
+      if (!isToday) return [];
+      const rows = await db.insights
+        .where("status")
+        .anyOf(["new", "seen"])
+        .toArray();
+      const rank: Record<InsightSeverity, number> = {
+        urgent: 2,
+        notable: 1,
+        info: 0,
+      };
+      return rows
+        .filter((i) => i.surface === "macros_header")
+        .sort((a, b) => {
+          const s = rank[b.severity] - rank[a.severity];
+          return s !== 0 ? s : b.createdAt - a.createdAt;
+        })
+        .slice(0, 2);
+    }, [isToday]) ?? [];
+
+  const insightsSignature = insights
+    .map((i) => `${i.id}:${i.status}`)
+    .join(",");
+  useEffect(() => {
+    const newIds = insights
+      .filter((i) => i.status === "new" && i.id !== undefined)
+      .map((i) => i.id!);
+    if (newIds.length > 0) void markSeen(newIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insightsSignature]);
 
   return (
     <div className="relative flex h-full flex-col bg-bg">
@@ -196,6 +232,15 @@ export default function Macros() {
               </div>
             </button>
           </Card>
+        )}
+
+        {/* Insights (passive layer). Silent when nothing's worth saying. */}
+        {insights.length > 0 && (
+          <div className="mt-[22px] space-y-2">
+            {insights.map((i) => (
+              <InsightCard key={i.id} insight={i} />
+            ))}
+          </div>
         )}
 
         {MEAL_ORDER.map((meal) => {

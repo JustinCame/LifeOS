@@ -7,6 +7,16 @@ import type {
   RecipeIngredient,
 } from '../db/types'
 import { startOfToday } from './health'
+import { runTriggers } from './insights/engine'
+
+// Fire the passive-insight layer's on_write triggers after any meal entry
+// insert. Fire-and-forget: if the API is down, the user's key isn't set, or
+// the trigger crashes, logging must still complete cleanly.
+function firePassiveMacroTrigger(): void {
+  void runTriggers('on_write', ['macro_gap']).catch(() => {
+    // Ignore — engine already logs; passive layer must never break logging.
+  })
+}
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 
@@ -87,6 +97,7 @@ export async function addMealEntry(
     lastUsedAt: Date.now(),
     useCount: (food.useCount ?? 0) + 1,
   })
+  firePassiveMacroTrigger()
 }
 
 export async function deleteMealEntry(id: number): Promise<void> {
@@ -110,6 +121,7 @@ export async function addQuickMealEntry(
     macros,
     createdAt: Date.now(),
   })
+  firePassiveMacroTrigger()
 }
 
 // Change the servings on a logged meal entry. Macros are rescaled from the
@@ -242,4 +254,5 @@ export async function logRecipeToMeal(
     lastUsedAt: Date.now(),
     useCount: (recipe.useCount ?? 0) + 1,
   })
+  firePassiveMacroTrigger()
 }

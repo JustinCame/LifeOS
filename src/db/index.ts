@@ -21,6 +21,7 @@ import type {
   CardioSession,
   Note,
   Recipe,
+  Insight,
 } from './types'
 
 class LifeOSDB extends Dexie {
@@ -44,6 +45,7 @@ class LifeOSDB extends Dexie {
   recipes!: Table<Recipe, number>
   habit_entries!: Table<HabitEntry, number>
   daily_logs!: Table<DailyLog, number>
+  insights!: Table<Insight, number>
 
   constructor() {
     super('LifeOS')
@@ -399,6 +401,38 @@ class LifeOSDB extends Dexie {
       recipes: '++id, name, lastUsedAt, useCount, createdAt',
       habit_entries: '++id, habitId, date, [habitId+date], createdAt',
       daily_logs: '++id, &date, updatedAt',
+    })
+
+    // v13: new insights store for the passive-insight layer. Compound
+    // [kind+date] powers per-day dedupe checks; [status+date] powers the
+    // "which insights should render on Home today" query. subjectKey is
+    // indexed so per-entity dedupe (e.g. per-exercise lift_stalled) can
+    // scan a small slice instead of the whole table.
+    this.version(13).stores({
+      settings: '&key, updatedAt',
+      tasks:
+        '++id, status, dueDate, priority, source, calendarEventId, emailId, goalId, createdAt, *tags',
+      workouts: '++id, date, completedAt, createdAt',
+      meals: '++id, date, type, [date+type], createdAt',
+      transactions: '++id, date, category, source, emailId, createdAt',
+      habits: '++id, name, createdAt, archivedAt',
+      goals: '++id, status, term, targetDate, createdAt',
+      health_logs: '++id, date, type, [date+type], createdAt',
+      chat_history:
+        '++id, conversationId, [conversationId+createdAt], createdAt',
+      cached_briefs: '++id, type, date, [type+date], createdAt',
+      foods: '++id, name, barcode, lastUsedAt, useCount, createdAt',
+      meal_entries: '++id, date, type, foodId, recipeId, [date+type], createdAt',
+      goal_journal: '++id, goalId, [goalId+createdAt], createdAt',
+      exercises: '++id, name, isCustom, lastUsedAt, useCount, createdAt',
+      workout_templates: '++id, name, lastUsedAt, useCount, createdAt',
+      cardio_sessions: '++id, date, kind, createdAt',
+      notes: '++id, updatedAt, createdAt',
+      recipes: '++id, name, lastUsedAt, useCount, createdAt',
+      habit_entries: '++id, habitId, date, [habitId+date], createdAt',
+      daily_logs: '++id, &date, updatedAt',
+      insights:
+        '++id, coach, kind, date, status, [kind+date], [status+date], subjectKey, createdAt',
     })
   }
 }

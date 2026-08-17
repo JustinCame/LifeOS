@@ -16,6 +16,7 @@ import MetricSheet from "./components/MetricSheet";
 import BackupSheet from "./components/BackupSheet";
 import type { DailyMetricType } from "./lib/health";
 import { COACH_CONFIG, type CoachKey } from "./lib/coaches";
+import { runTriggers } from "./lib/insights/engine";
 
 const THEME_KEY = "lifeos:theme";
 type Tab = "home" | "calendar" | "fitness" | "macros" | "health" | "habits" | "notes";
@@ -65,6 +66,7 @@ export default function App() {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, getTheme);
 
   useLinkedHabitSync();
+  useInsightScheduler();
 
   // Shared handler so Home and Health both open the same MetricSheet for
   // sleep/water — calories still bounce over to the Macros tab.
@@ -180,6 +182,26 @@ function useLinkedHabitSync() {
       )
       .join(","),
   ]);
+}
+
+// Fires the passive-insight engine on mount and whenever the tab returns to
+// the foreground. Both paths are gated on the `insights_last_run` setting
+// inside runTriggers (30-min TTL), so this can't spam the API. Errors are
+// swallowed — a failed insight run must never break the app.
+function useInsightScheduler() {
+  useEffect(() => {
+    void runTriggers("scheduled").catch(() => {
+      // Ignore — engine already logs; passive layer must never break the UI.
+    });
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void runTriggers("scheduled").catch(() => {
+        // Ignore — see above.
+      });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 }
 
 function TabBar({ value, onChange }: { value: Tab; onChange: (v: Tab) => void }) {

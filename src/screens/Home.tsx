@@ -15,7 +15,10 @@ import {
 import WeeklyReviewSheet from "../components/WeeklyReviewSheet";
 import HabitRingRow from "../components/HabitRingRow";
 import DailyPromptCard from "../components/DailyPromptCard";
+import InsightCard from "../components/InsightCard";
 import ProgramEditorScreen from "./ProgramEditorScreen";
+import { markSeen } from "../lib/insights/engine";
+import type { InsightSeverity } from "../db/types";
 import {
   disableNotifications,
   enableNotifications,
@@ -124,6 +127,42 @@ export default function Home({
   // Habits have moved off this screen into their own tab; the ring-row
   // replacement lands in a follow-up step of the habits redesign.
 
+  // --- Insights (passive layer, surface: home_top) ---
+  // Live-query un-dismissed insights bound to this surface. Sort urgent →
+  // notable → info, then by recency. Max 2 render at a time (spec §6).
+  const insights =
+    useLiveQuery(async () => {
+      const rows = await db.insights
+        .where("status")
+        .anyOf(["new", "seen"])
+        .toArray();
+      const rank: Record<InsightSeverity, number> = {
+        urgent: 2,
+        notable: 1,
+        info: 0,
+      };
+      return rows
+        .filter((i) => i.surface === "home_top")
+        .sort((a, b) => {
+          const s = rank[b.severity] - rank[a.severity];
+          return s !== 0 ? s : b.createdAt - a.createdAt;
+        })
+        .slice(0, 2);
+    }, []) ?? [];
+
+  // Mark 'new' insights as 'seen' once they've rendered. The dep key changes
+  // only when identity or status changes, so this doesn't loop.
+  const insightsSignature = insights
+    .map((i) => `${i.id}:${i.status}`)
+    .join(",");
+  useEffect(() => {
+    const newIds = insights
+      .filter((i) => i.status === "new" && i.id !== undefined)
+      .map((i) => i.id!);
+    if (newIds.length > 0) void markSeen(newIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insightsSignature]);
+
   // --- Header copy ---
   const today = new Date();
   const dayName = today.toLocaleDateString(undefined, { weekday: "long" });
@@ -169,6 +208,17 @@ export default function Home({
             )}
           </div>
         </div>
+
+        {/* Insights (passive layer) — sits above everything else. Cards are
+            silent when nothing's worth saying, so this block often renders
+            nothing at all. */}
+        {insights.length > 0 && (
+          <div className="mb-[22px] space-y-2">
+            {insights.map((i) => (
+              <InsightCard key={i.id} insight={i} />
+            ))}
+          </div>
+        )}
 
         {/* Schedule */}
         <Section title="Next 7 days" meta={sectionMeta}>

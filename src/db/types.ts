@@ -370,3 +370,44 @@ export interface Note {
   createdAt: number
   updatedAt: number
 }
+
+// -------- Passive insight layer --------
+// Coach who "authored" the insight; matches CoachKey in lib/coaches.ts.
+export type InsightCoach = 'home' | 'fitness' | 'macros' | 'goals' | 'health'
+
+// new     — never displayed to the user
+// seen    — rendered but not acted on
+// dismissed — user tapped dismiss (or accepted+ran an action, then dismissed)
+// accepted — user tapped an accept-style action
+export type InsightStatus = 'new' | 'seen' | 'dismissed' | 'accepted'
+
+// info    — quiet observation
+// notable — worth acting on today
+// urgent  — worth pushing (see api/push.ts insight branch)
+export type InsightSeverity = 'info' | 'notable' | 'urgent'
+
+export interface InsightAction {
+  label: string             // "Swap to 190 lb", "Log it", "Move to 7pm"
+  kind: 'navigate' | 'mutate' | 'dismiss' | 'snooze'
+  payload?: Record<string, unknown>
+}
+
+export interface Insight {
+  id?: number
+  coach: InsightCoach
+  kind: string              // trigger id, e.g. 'macro_gap', 'lift_stalled'
+  date: number              // startOfDay ms this insight belongs to
+  subjectKey?: string       // e.g. exercise id, habit id — for per-entity dedupe
+  title: string             // <= 60 chars, rendered bold
+  body: string              // 1-3 sentences, no markdown headers
+  actions: InsightAction[]
+  severity: InsightSeverity
+  status: InsightStatus
+  // sha256 of trigger.id + subjectKey + stable-stringified slice. Primary
+  // cost guard — engine skips model calls when a matching hash exists.
+  inputHash: string
+  model: string             // e.g. 'claude-haiku-4-5', 'fake' for hardcoded
+  surface: string           // component slot: 'home_top', 'macros_header', ...
+  createdAt: number
+  updatedAt: number
+}
