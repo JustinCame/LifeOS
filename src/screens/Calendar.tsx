@@ -408,7 +408,10 @@ function EventRow({
         {formatEventTime(event)}
       </div>
       <div className="flex items-start gap-2.5">
-        <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-subtle" />
+        <span
+          className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full"
+          style={{ background: event.color ?? "var(--color-subtle)" }}
+        />
         <div className="min-w-0 flex-1">
           <div className="text-base leading-tight">
             {event.title}

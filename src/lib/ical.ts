@@ -30,7 +30,21 @@ export interface ICalSource {
   // Optional user-supplied label (e.g. "Personal", "SUNY").
   label?: string
   url: string
+  // One of CALENDAR_COLORS[].hex, chosen by the user to distinguish
+  // this calendar's events on Home. Undefined = default accent.
+  color?: string
 }
+
+// Fixed palette shown as the three color pips per calendar row in
+// ICalSetupSheet. Kept short (three options) so decisions are fast;
+// three calendars sharing three colors reads well, and if you exceed
+// three you can still repeat colors — the label prefix on event
+// titles disambiguates.
+export const CALENDAR_COLORS: readonly { key: string; hex: string }[] = [
+  { key: 'green', hex: '#6FCF2F' },
+  { key: 'blue', hex: '#4A9EFF' },
+  { key: 'red', hex: '#FF6B4A' },
+]
 
 interface CacheEntry {
   fetchedAt: number
@@ -62,6 +76,11 @@ export async function getICalSources(): Promise<ICalSource[]> {
         label: typeof s.label === 'string' && s.label.trim().length > 0
           ? s.label.trim()
           : undefined,
+        color:
+          typeof (s as { color?: unknown }).color === 'string' &&
+          (s as { color: string }).color.trim().length > 0
+            ? (s as { color: string }).color.trim()
+            : undefined,
       }))
       .slice(0, MAX_ICAL_SOURCES)
   }
@@ -155,7 +174,7 @@ async function fetchAndParse(source: ICalSource): Promise<CalEvent[]> {
     throw new Error(`iCal proxy failed (${res.status}): ${body}`)
   }
   const text = await res.text()
-  return parseIcs(text, source.label)
+  return parseIcs(text, source.label, source.color)
 }
 
 // Parse an .ics blob into CalEvent[]. Recurring events (identified by
@@ -166,7 +185,7 @@ async function fetchAndParse(source: ICalSource): Promise<CalEvent[]> {
 // Expansion window: 30 days back → 90 days forward from "now". That's
 // well beyond Home's 7-day preview and gives insights headroom without
 // generating tens of thousands of rows for far-future daily standups.
-function parseIcs(ics: string, label?: string): CalEvent[] {
+function parseIcs(ics: string, label?: string, color?: string): CalEvent[] {
   const jcal = ICAL.parse(ics)
   const root = new ICAL.Component(jcal)
   const rawEvents = root.getAllSubcomponents('vevent')
@@ -212,6 +231,7 @@ function parseIcs(ics: string, label?: string): CalEvent[] {
           location: location ? String(location) : undefined,
           description: description ? String(description) : undefined,
           recurringEventId: uid,
+          color,
         })
       }
     } else {
@@ -228,6 +248,7 @@ function parseIcs(ics: string, label?: string): CalEvent[] {
         allDay: evt.startDate?.isDate ?? false,
         location: location ? String(location) : undefined,
         description: description ? String(description) : undefined,
+        color,
       })
     }
   }

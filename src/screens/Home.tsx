@@ -281,7 +281,15 @@ export default function Home({
                       {formatEventTime(s)}
                     </div>
                     <div className="flex items-start gap-2.5">
-                      <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-subtle" />
+                      <span
+                        className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                        style={{
+                          // Use the source calendar's picked color when
+                          // present; falls back to the default subtle
+                          // dot for OAuth events + legacy iCal rows.
+                          background: s.color ?? "var(--color-subtle)",
+                        }}
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="text-base leading-tight">{s.title}</div>
                         {s.location && <div className="mt-0.5 text-xs text-muted">{s.location}</div>}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, setSetting } from "../db";
 import {
+  CALENDAR_COLORS,
   ICAL_URLS_SETTING,
   MAX_ICAL_SOURCES,
   clearLegacyICalSetting,
@@ -37,7 +38,7 @@ export default function ICalSetupSheet({ onClose }: Props) {
   // React key is a synthetic local id so removing / adding rows doesn't
   // cause input focus to jump around during edits.
   const [rows, setRows] = useState<
-    Array<{ id: number; label: string; url: string }>
+    Array<{ id: number; label: string; url: string; color: string }>
   >([]);
   const [hydrated, setHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,8 +58,19 @@ export default function ICalSetupSheet({ onClose }: Props) {
               id: i,
               label: s.label ?? "",
               url: s.url,
+              // Default new-to-color existing rows to the first palette
+              // entry (green) — same visual as the pre-color default so
+              // migration is invisible.
+              color: s.color ?? CALENDAR_COLORS[0].hex,
             }))
-          : [{ id: 0, label: "", url: "" }];
+          : [
+              {
+                id: 0,
+                label: "",
+                url: "",
+                color: CALENDAR_COLORS[0].hex,
+              },
+            ];
       setRows(seeded);
       // Instructions expanded only if we have no configured URLs yet.
       setInstructionsOpen(sources.length === 0);
@@ -66,7 +78,10 @@ export default function ICalSetupSheet({ onClose }: Props) {
     });
   }, [hydrated]);
 
-  const updateRow = (id: number, patch: Partial<{ label: string; url: string }>) => {
+  const updateRow = (
+    id: number,
+    patch: Partial<{ label: string; url: string; color: string }>,
+  ) => {
     setRows((cur) =>
       cur.map((r) => (r.id === id ? { ...r, ...patch } : r)),
     );
@@ -75,9 +90,13 @@ export default function ICalSetupSheet({ onClose }: Props) {
 
   const addRow = () => {
     if (rows.length >= MAX_ICAL_SOURCES) return;
+    // Cycle the palette so the second and third rows default to
+    // different colors — nudges the user to keep them distinguishable.
+    const nextColor =
+      CALENDAR_COLORS[rows.length % CALENDAR_COLORS.length].hex;
     setRows((cur) => [
       ...cur,
-      { id: Date.now(), label: "", url: "" },
+      { id: Date.now(), label: "", url: "", color: nextColor },
     ]);
     setError(null);
   };
@@ -123,6 +142,7 @@ export default function ICalSetupSheet({ onClose }: Props) {
       normalized.push({
         url: canonical,
         label: r.label.trim() || undefined,
+        color: r.color,
       });
     }
 
@@ -193,10 +213,34 @@ export default function ICalSetupSheet({ onClose }: Props) {
                 key={row.id}
                 className="rounded-[14px] border border-border bg-surface p-3"
               >
-                <div className="mb-2 flex items-center justify-between">
+                <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
                     Calendar {i + 1}
                   </span>
+                  {/* Color pips — three fixed choices, active gets a ring
+                      + fill. Same color shows up as the dot on Home
+                      when events from this calendar render. */}
+                  <div className="flex flex-1 items-center justify-center gap-1.5">
+                    {CALENDAR_COLORS.map((c) => {
+                      const active = row.color === c.hex;
+                      return (
+                        <button
+                          key={c.key}
+                          onClick={() =>
+                            updateRow(row.id, { color: c.hex })
+                          }
+                          aria-label={`Use ${c.key} for this calendar`}
+                          className="grid h-6 w-6 place-items-center rounded-full transition"
+                          style={{
+                            background: active ? c.hex : "transparent",
+                            boxShadow: active
+                              ? `0 0 0 2px var(--color-bg), 0 0 0 3px ${c.hex}`
+                              : `inset 0 0 0 2px ${c.hex}`,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
                   {rows.length > 1 && (
                     <button
                       onClick={() => removeRow(row.id)}

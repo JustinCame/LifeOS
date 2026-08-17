@@ -14,6 +14,10 @@ export interface CalEvent {
   // Present when this event is an instance of a recurring series. The value
   // is the master event id; deleting that id deletes the whole series.
   recurringEventId?: string
+  // Hex color, propagated from the source iCal calendar's picked color.
+  // Undefined means "use the default accent" — Google-OAuth events and
+  // legacy iCal rows without a color set both land here.
+  color?: string
 }
 
 interface RawEventTime {
