@@ -12,6 +12,10 @@ import {
 } from "../lib/userProgram";
 import { useTick } from "../lib/useTick";
 import { fireLocalNotification } from "../lib/notifications";
+import {
+  cancelServiceWorkerNotification,
+  scheduleServiceWorkerNotification,
+} from "../lib/scheduledNotifications";
 
 interface Props {
   hasActiveWorkout: boolean;
@@ -131,6 +135,39 @@ export default function StartDial({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [derivedIv, isHiit]);
+
+  // Schedule SW-driven notifications for the cardio session's boundaries
+  // — session end (LISS or HIIT) and each HIIT interval end. These fire
+  // even when the app is backgrounded (see scheduledNotifications.ts).
+  // The client-side auto-finalize / auto-interval-end effects below are
+  // still the fallback and run when the user is in-app.
+  useEffect(() => {
+    if (!run || run.sessionEndsAt === null) {
+      cancelServiceWorkerNotification("cardio-session");
+      return;
+    }
+    scheduleServiceWorkerNotification({
+      id: "cardio-session",
+      title: "Cardio done",
+      body: `${cardio.name} · ${cardio.min} min complete.`,
+      at: run.sessionEndsAt,
+    });
+    return () => cancelServiceWorkerNotification("cardio-session");
+  }, [run?.sessionEndsAt, cardio.name, cardio.min]);
+
+  useEffect(() => {
+    if (!run || !isHiit || run.intervalEndsAt === null) {
+      cancelServiceWorkerNotification("cardio-interval");
+      return;
+    }
+    scheduleServiceWorkerNotification({
+      id: "cardio-interval",
+      title: "Interval done",
+      body: "Rest, then tap for the next.",
+      at: run.intervalEndsAt,
+    });
+    return () => cancelServiceWorkerNotification("cardio-interval");
+  }, [run?.intervalEndsAt, isHiit]);
 
   // Auto-finalize when the total session runs out. Fires the "cardio done"
   // notification + a slightly longer vibration.

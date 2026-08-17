@@ -28,6 +28,10 @@ import {
 } from "../lib/fitness";
 import { generateText } from "../lib/anthropic";
 import { fireLocalNotification } from "../lib/notifications";
+import {
+  cancelServiceWorkerNotification,
+  scheduleServiceWorkerNotification,
+} from "../lib/scheduledNotifications";
 import { useTick } from "../lib/useTick";
 import ExercisePickerSheet from "./ExercisePickerSheet";
 import ExerciseHistorySheet from "./ExerciseHistorySheet";
@@ -104,6 +108,24 @@ export default function WorkoutSheet({ workoutId, onClose, onSwitchWorkout }: Pr
   // display.
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
   const tickNow = useTick(250);
+
+  // Schedule a SW-driven notification whenever a new rest window opens
+  // (or when it changes). Fires even when the app is backgrounded — the
+  // client-side effect below is the fallback for when the user is back
+  // in-app or the SW isn't available.
+  useEffect(() => {
+    if (restEndsAt === null) {
+      cancelServiceWorkerNotification("workout-sheet-rest");
+      return;
+    }
+    scheduleServiceWorkerNotification({
+      id: "workout-sheet-rest",
+      title: "Rest done",
+      body: "Ready for your next set.",
+      at: restEndsAt,
+    });
+    return () => cancelServiceWorkerNotification("workout-sheet-rest");
+  }, [restEndsAt]);
 
   // Fire vibration + notification when the timer transitions to done.
   // Guard: only run when restEndsAt is still set — setting it to null

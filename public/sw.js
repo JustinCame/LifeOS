@@ -1,6 +1,57 @@
 // Minimal shell service worker for LifeOS.
-const CACHE = 'lifeos-shell-v8';
+// Bumped v8 → v9 alongside the scheduled-notification message handler
+// so returning users pick up the new SW rather than the cached-old one.
+const CACHE = 'lifeos-shell-v9';
 const SHELL = ['/', '/manifest.json'];
+
+// Scheduled local notifications. Timers live in the SW rather than the page
+// because iOS Safari suspends the page's JS the moment the app is
+// backgrounded — a setTimeout in the page won't fire until the user
+// returns. SW timers get a longer background execution window on iOS, so
+// short-to-medium notifications (rest timers, HIIT intervals, cardio
+// sessions) can fire close to on-time even with the app in the background.
+// Not bulletproof — Apple can and does suspend SWs too — but it's the
+// cheapest workable path before reaching for server-scheduled push.
+const scheduledTimers = new Map();
+
+self.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type === 'schedule-notification') {
+    const { id, title, body, at, tag } = data;
+    if (!id || !title || typeof at !== 'number') return;
+    // Cancel any existing timer for the same id — used when adjusting a
+    // rest timer's duration mid-count (±30s buttons).
+    const existing = scheduledTimers.get(id);
+    if (existing) clearTimeout(existing);
+    const delay = at - Date.now();
+    if (delay <= 0) {
+      scheduledTimers.delete(id);
+      return;
+    }
+    const timeoutId = setTimeout(() => {
+      scheduledTimers.delete(id);
+      self.registration.showNotification(title, {
+        body: body || '',
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
+        // Defaults to the same tag fireLocalNotification uses so that if
+        // BOTH paths fire (foreground completion: SW timer AND the
+        // client-side effect), the second call replaces the first
+        // visually — one notification on screen, not two.
+        tag: tag || 'lifeos-local',
+        renotify: true,
+      });
+    }, delay);
+    scheduledTimers.set(id, timeoutId);
+  } else if (data.type === 'cancel-notification') {
+    const { id } = data;
+    const existing = scheduledTimers.get(id);
+    if (existing) {
+      clearTimeout(existing);
+      scheduledTimers.delete(id);
+    }
+  }
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));

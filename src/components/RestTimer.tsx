@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { fireLocalNotification } from "../lib/notifications";
+import {
+  cancelServiceWorkerNotification,
+  scheduleServiceWorkerNotification,
+} from "../lib/scheduledNotifications";
 import { useTick } from "../lib/useTick";
 
 interface Props {
@@ -31,6 +35,20 @@ export default function RestTimer({
   const now = useTick(500);
 
   const left = Math.max(0, Math.ceil((endsAt - now) / 1000));
+
+  // Schedule a service-worker-driven notification for `endsAt` — fires
+  // even when the app is backgrounded (see scheduledNotifications.ts).
+  // Re-runs whenever endsAt changes so ±30s adjustments reschedule
+  // cleanly. Cancels on unmount so a skipped-rest doesn't ping later.
+  useEffect(() => {
+    scheduleServiceWorkerNotification({
+      id: "rest-timer",
+      title: "Rest done",
+      body: `${exerciseName} — ready for your next set.`,
+      at: endsAt,
+    });
+    return () => cancelServiceWorkerNotification("rest-timer");
+  }, [endsAt, exerciseName]);
 
   // Fire the "rest done" notification + vibration exactly once when the
   // timer runs out. Guarded with a ref so the auto-dismiss useEffect
