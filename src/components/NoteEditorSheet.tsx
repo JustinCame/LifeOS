@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db } from "../db";
 import type { Note } from "../db/types";
 import { DAILY_TAGS } from "../lib/dailyLog";
@@ -31,6 +31,18 @@ export default function NoteEditorSheet({ target, onClose }: Props) {
   // subsequent edits update the same row.
   const [draftId, setDraftId] = useState<number | null>(null);
 
+  // Snapshot of the loaded values, used to detect whether the user has
+  // actually changed anything before writing to Dexie. Without this,
+  // opening a note to just READ it would immediately trigger the
+  // autosave effect (because hydration counts as a state change) and
+  // bump the note's updatedAt — which then makes it jump to the top of
+  // the "Recent" sort in Notes.tsx even though the user didn't type.
+  const loadedSnapshotRef = useRef<{
+    title: string;
+    body: string;
+    tags: string[];
+  } | null>(null);
+
   // Slide-in animation.
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -38,7 +50,9 @@ export default function NoteEditorSheet({ target, onClose }: Props) {
     return () => cancelAnimationFrame(id);
   }, []);
 
-  // Load the note on mount (only fires once since target is fixed).
+  // Load the note on mount (only fires once since target is fixed). Also
+  // stamps `loadedSnapshotRef` so the autosave effect can tell whether
+  // the user has actually modified anything before writing.
   useEffect(() => {
     if (target === "new") {
       setTitle("");
@@ -47,18 +61,25 @@ export default function NoteEditorSheet({ target, onClose }: Props) {
       setPinnedAt(undefined);
       setArchivedAt(undefined);
       setDraftId(null);
+      loadedSnapshotRef.current = { title: "", body: "", tags: [] };
       return;
     }
     if (typeof target === "number") {
       let cancelled = false;
       db.notes.get(target).then((n) => {
         if (cancelled || !n) return;
+        const nextTags = n.tags ?? [];
         setTitle(n.title);
         setBody(n.body);
-        setTags(n.tags ?? []);
+        setTags(nextTags);
         setPinnedAt(n.pinnedAt);
         setArchivedAt(n.archivedAt);
         setDraftId(null);
+        loadedSnapshotRef.current = {
+          title: n.title,
+          body: n.body,
+          tags: nextTags,
+        };
       });
       return () => {
         cancelled = true;
@@ -76,6 +97,13 @@ export default function NoteEditorSheet({ target, onClose }: Props) {
 
     // Don't create a new row for an empty new note.
     if (persistedId === null && !hasContent) return;
+
+    // Bail out if the user hasn't actually changed anything — otherwise
+    // just opening the sheet to read a note would touch updatedAt and
+    // bump the note to the top of the Recent sort.
+    if (isUnchangedFromSnapshot(loadedSnapshotRef.current, title, body, tags)) {
+      return;
+    }
 
     const handle = window.setTimeout(async () => {
       const now = Date.now();
@@ -96,6 +124,10 @@ export default function NoteEditorSheet({ target, onClose }: Props) {
           updatedAt: now,
         });
       }
+      // Fold the just-persisted values back into the snapshot so a
+      // subsequent close-flush doesn't count the same state as "still
+      // dirty" and write again.
+      loadedSnapshotRef.current = { title, body, tags: [...tags] };
     }, AUTOSAVE_MS);
     return () => window.clearTimeout(handle);
   }, [title, body, tags, existingId, draftId]);
@@ -104,14 +136,24 @@ export default function NoteEditorSheet({ target, onClose }: Props) {
     const persistedId = existingId ?? draftId;
     const hasContent =
       title.trim().length > 0 || body.trim().length > 0 || tags.length > 0;
-    // If the user closed before the debounce fired, save now.
+    const unchanged = isUnchangedFromSnapshot(
+      loadedSnapshotRef.current,
+      title,
+      body,
+      tags,
+    );
+    // If the user closed before the debounce fired, save now. Skip when
+    // nothing changed from the loaded snapshot — same reasoning as the
+    // autosave-effect guard above.
     if (persistedId !== null) {
-      void db.notes.update(persistedId, {
-        title,
-        body,
-        tags: tags.length > 0 ? tags : undefined,
-        updatedAt: Date.now(),
-      });
+      if (!unchanged) {
+        void db.notes.update(persistedId, {
+          title,
+          body,
+          tags: tags.length > 0 ? tags : undefined,
+          updatedAt: Date.now(),
+        });
+      }
     } else if (hasContent) {
       const now = Date.now();
       void db.notes.add({
@@ -381,6 +423,27 @@ function PinIcon() {
       />
     </svg>
   );
+}
+
+// Compare current editor state against the snapshot taken at load. Used
+// by both the debounced autosave and the close-flush to avoid touching
+// updatedAt when the user only opened the note to read it.
+function isUnchangedFromSnapshot(
+  snap: { title: string; body: string; tags: string[] } | null,
+  title: string,
+  body: string,
+  tags: string[],
+): boolean {
+  if (!snap) return false; // still loading — safer to skip than to write
+  if (snap.title !== title) return false;
+  if (snap.body !== body) return false;
+  if (snap.tags.length !== tags.length) return false;
+  // Compare tag membership, not order — DAILY_TAGS renders in a fixed
+  // grid so toggling produces stable ordering, but keep this order-
+  // insensitive so a shuffle wouldn't count as a change.
+  const snapSet = new Set(snap.tags);
+  for (const t of tags) if (!snapSet.has(t)) return false;
+  return true;
 }
 
 function ChevronDownIcon() {
