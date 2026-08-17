@@ -321,9 +321,12 @@ function SleepDetailForm({
       : "—";
 
   return (
-    <div className="mt-6 rounded-[16px] border border-border bg-surface p-3.5">
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block">
+    <div className="mt-6 rounded-[16px] border border-border bg-surface p-3">
+      {/* min-w-0 on each label is what actually lets the grid constrain
+          the native <input type="time"> — iOS Safari's picker has an
+          intrinsic content width that ignores w-full without it. */}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block min-w-0">
           <span className="mb-1 block font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
             Bedtime
           </span>
@@ -331,10 +334,10 @@ function SleepDetailForm({
             type="time"
             value={bed}
             onChange={(e) => setBed(e.target.value)}
-            className="w-full rounded-[8px] border border-border bg-bg px-2.5 py-2 text-base outline-none"
+            className="block w-full min-w-0 rounded-[8px] border border-border bg-bg px-2 py-2 text-sm outline-none"
           />
         </label>
-        <label className="block">
+        <label className="block min-w-0">
           <span className="mb-1 block font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
             Wake time
           </span>
@@ -342,7 +345,7 @@ function SleepDetailForm({
             type="time"
             value={wake}
             onChange={(e) => setWake(e.target.value)}
-            className="w-full rounded-[8px] border border-border bg-bg px-2.5 py-2 text-base outline-none"
+            className="block w-full min-w-0 rounded-[8px] border border-border bg-bg px-2 py-2 text-sm outline-none"
           />
         </label>
       </div>
