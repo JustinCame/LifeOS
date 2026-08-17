@@ -3,9 +3,13 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { execSync } from 'node:child_process'
 
-// Grab the short commit hash at build time. Wrapped in try/catch so a
-// missing git binary or a shallow clone doesn't crash the build.
+// Grab the short commit hash at build time. On Vercel we get it from
+// VERCEL_GIT_COMMIT_SHA (Vercel builds from a source archive, not a full
+// git clone, so `git rev-parse` fails there). Falls back to local git for
+// dev / non-Vercel builds; falls back to 'unknown' if both fail.
 function gitShortHash(): string {
+  const vercelSha = process.env.VERCEL_GIT_COMMIT_SHA
+  if (vercelSha) return vercelSha.slice(0, 7)
   try {
     return execSync('git rev-parse --short HEAD', {
       cwd: __dirname,
