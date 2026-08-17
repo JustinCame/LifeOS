@@ -128,19 +128,35 @@ export default function Calendar() {
 
   type Cell = {
     date: Date | null;
-    hasEvents: boolean;
+    // Deduped list of colors of events on this day, in first-encountered
+    // order. `undefined` in the list means "an event with no explicit
+    // color" (OAuth path, legacy iCal rows without a color pick). We
+    // render one small dot per distinct color, so a day with a personal
+    // event AND a holiday shows two dots side by side.
+    eventColors: (string | undefined)[];
     log?: DailyLog;
   };
   const cells: Cell[] = [];
   for (let i = 0; i < firstWeekday; i++)
-    cells.push({ date: null, hasEvents: false });
+    cells.push({ date: null, eventColors: [] });
   for (let d = 1; d <= daysInMonth; d++) {
     const date = new Date(cursor.getFullYear(), cursor.getMonth(), d);
-    const hasEvents = events.some((e) => sameDay(e.start, date));
-    cells.push({ date, hasEvents, log: logByDay.get(date.getTime()) });
+    const seen = new Set<string | undefined>();
+    const eventColors: (string | undefined)[] = [];
+    for (const e of events) {
+      if (!sameDay(e.start, date)) continue;
+      if (seen.has(e.color)) continue;
+      seen.add(e.color);
+      eventColors.push(e.color);
+    }
+    cells.push({
+      date,
+      eventColors,
+      log: logByDay.get(date.getTime()),
+    });
   }
   while (cells.length % 7 !== 0)
-    cells.push({ date: null, hasEvents: false });
+    cells.push({ date: null, eventColors: [] });
 
   const eventsOfSelected = events
     .filter((e) => sameDay(e.start, selected))
@@ -237,12 +253,24 @@ export default function Calendar() {
                   >
                     {cell.date.getDate()}
                   </span>
-                  {cell.hasEvents && !isSelected && (
-                    <span
-                      className={`absolute bottom-1 h-1 w-1 rounded-full ${
-                        hasFill ? "bg-white" : "bg-accent"
-                      }`}
-                    />
+                  {cell.eventColors.length > 0 && !isSelected && (
+                    <span className="absolute inset-x-0 bottom-1 flex justify-center gap-0.5">
+                      {cell.eventColors.slice(0, 3).map((c, idx) => (
+                        <span
+                          key={idx}
+                          className="h-1 w-1 rounded-full"
+                          style={{
+                            // When the cell already has a tag fill,
+                            // switch to white for contrast against the
+                            // colored background — same rule as before,
+                            // just now applied per-dot.
+                            background: hasFill
+                              ? "#fff"
+                              : c ?? "var(--color-accent)",
+                          }}
+                        />
+                      ))}
+                    </span>
                   )}
                 </button>
               );
