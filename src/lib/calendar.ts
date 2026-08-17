@@ -1,5 +1,5 @@
 import { authedFetch } from './google'
-import { getICalUrl, listICalEventsForRange } from './ical'
+import { isICalConfigured, listICalEventsForRange } from './ical'
 
 export interface CalEvent {
   id: string
@@ -46,12 +46,11 @@ export async function listEventsForRange(
   end: Date,
 ): Promise<CalEvent[]> {
   // Prefer the iCal path when configured — that's what solves the iOS
-  // silent-refresh-keeps-failing pain point. The URL is Google's own
-  // bearer token so we don't need OAuth cookies for it. Falls through
-  // to the OAuth path (below) whenever the URL isn't set OR when the
-  // iCal fetch/parse throws (e.g. the proxy is down).
-  const icalUrl = await getICalUrl()
-  if (icalUrl) {
+  // silent-refresh-keeps-failing pain point. Each configured URL is
+  // Google's own bearer token so we don't need OAuth cookies for it.
+  // Falls through to the OAuth path (below) whenever no URLs are set
+  // OR when the iCal fetch/parse throws (e.g. the proxy is down).
+  if (await isICalConfigured()) {
     try {
       return await listICalEventsForRange(start, end)
     } catch (err) {

@@ -5,92 +5,157 @@
 // depend on cookies — perfect for iOS PWAs where Google's silent-refresh
 // keeps dying because of storage partitioning.
 //
-// Flow: client asks the Vercel proxy (api/ical.ts) for the raw feed;
-// this file parses that with ical.js, expands recurring events into
-// concrete occurrences, and returns CalEvent[] shaped identically to
-// what calendar.ts's OAuth path returns. Downstream code doesn't need
-// to know which source is live.
-//
-// Cache: 15 minutes in-memory. Google throttles freshness on their side
-// (~1h lag typical) and hitting the proxy every render is wasteful.
-// The cache is a plain module-level Map; PWA reloads clear it.
+// Supports up to MAX_ICAL_SOURCES calendars — a personal calendar,
+// school schedule, holidays, etc. Each is fetched in parallel, parsed,
+// and merged into a single CalEvent[] shape identical to what
+// calendar.ts's OAuth path returns.
 
 // @ts-expect-error — ical.js ships no types
 import ICAL from 'ical.js'
-import { getSetting } from '../db'
+import { deleteSetting, getSetting } from '../db'
 import type { CalEvent } from './calendar'
 
-export const ICAL_URL_SETTING = 'ical_url'
+// New multi-URL setting. Value is an array of {label, url} objects.
+export const ICAL_URLS_SETTING = 'ical_urls'
+// Legacy single-URL setting from the pre-multi-URL implementation. Kept
+// for read-side backward compat so anyone who already set up one URL
+// doesn't have to re-paste it. First save from the new UI clears this.
+const LEGACY_ICAL_URL_SETTING = 'ical_url'
+
+export const MAX_ICAL_SOURCES = 5
 
 const FETCH_TTL_MS = 15 * 60_000
 
-interface CacheEntry {
+export interface ICalSource {
+  // Optional user-supplied label (e.g. "Personal", "SUNY").
+  label?: string
   url: string
+}
+
+interface CacheEntry {
   fetchedAt: number
-  // Parsed but not yet range-filtered. We store all events and filter
-  // per-call so different range queries share the same cache.
+  // Parsed but not yet range-filtered. Different range queries share
+  // the same cache.
   events: CalEvent[]
 }
 
-let cache: CacheEntry | null = null
+// Per-URL cache — updating one calendar's URL doesn't invalidate the
+// others. Keyed by URL string.
+const cache = new Map<string, CacheEntry>()
 
-export async function getICalUrl(): Promise<string | null> {
-  const v = await getSetting<string>(ICAL_URL_SETTING)
-  return v && v.trim() ? v.trim() : null
+// Read the configured iCal sources, prefer the new array setting, fall
+// back to the legacy single-URL setting so a returning user with only
+// the old one still works.
+export async function getICalSources(): Promise<ICalSource[]> {
+  const stored = await getSetting<unknown>(ICAL_URLS_SETTING)
+  if (Array.isArray(stored) && stored.length > 0) {
+    return stored
+      .filter(
+        (s): s is ICalSource =>
+          typeof s === 'object' &&
+          s !== null &&
+          typeof (s as { url?: unknown }).url === 'string' &&
+          (s as { url: string }).url.trim().length > 0,
+      )
+      .map((s) => ({
+        url: s.url.trim(),
+        label: typeof s.label === 'string' && s.label.trim().length > 0
+          ? s.label.trim()
+          : undefined,
+      }))
+      .slice(0, MAX_ICAL_SOURCES)
+  }
+  // Fallback to legacy single-URL setting.
+  const legacy = await getSetting<string>(LEGACY_ICAL_URL_SETTING)
+  if (legacy && legacy.trim()) {
+    return [{ url: legacy.trim() }]
+  }
+  return []
 }
 
-// Wall-clock check to see whether the iCal path is what we should use.
-// Home / calendar helpers call this before deciding whether to hit the
-// OAuth path.
+// Wall-clock check to see whether the iCal path should be used.
+// calendar.ts calls this before deciding whether to hit the OAuth path.
 export async function isICalConfigured(): Promise<boolean> {
-  const url = await getICalUrl()
-  return url !== null
+  const sources = await getICalSources()
+  return sources.length > 0
+}
+
+// Clear the legacy setting after the user saves through the new list-
+// based UI so we don't have two potentially-conflicting sources of
+// truth on the same device.
+export async function clearLegacyICalSetting(): Promise<void> {
+  await deleteSetting(LEGACY_ICAL_URL_SETTING)
 }
 
 // Filter cached events into the requested [start, end) window. Recurring
-// events have already been expanded by parseIcalFeed, so this is a
-// straightforward date compare.
+// events have already been expanded by parseIcs, so this is a straight
+// date compare.
 export async function listICalEventsForRange(
   start: Date,
   end: Date,
 ): Promise<CalEvent[]> {
-  const url = await getICalUrl()
-  if (!url) throw new Error('no_ical_url')
+  const sources = await getICalSources()
+  if (sources.length === 0) throw new Error('no_ical_url')
 
   const now = Date.now()
-  const useCache =
-    cache !== null &&
-    cache.url === url &&
-    now - cache.fetchedAt < FETCH_TTL_MS
 
-  if (!useCache) {
-    const events = await fetchAndParse(url)
-    cache = { url, fetchedAt: now, events }
-  }
+  // Fetch anything that isn't already warm in the cache. Runs in
+  // parallel so a school calendar being slow doesn't block a personal
+  // one.
+  await Promise.all(
+    sources.map(async (source) => {
+      const existing = cache.get(source.url)
+      if (existing && now - existing.fetchedAt < FETCH_TTL_MS) return
+      try {
+        const events = await fetchAndParse(source)
+        cache.set(source.url, { fetchedAt: now, events })
+      } catch (err) {
+        // Log but don't throw — one broken calendar shouldn't sink
+        // everything. The remaining sources still contribute.
+        console.warn(
+          `[calendar] iCal fetch failed for ${source.label ?? source.url}:`,
+          err,
+        )
+        // Keep the last successful cache if any; else stamp an empty
+        // entry so we don't retry on every render.
+        if (!existing) {
+          cache.set(source.url, { fetchedAt: now, events: [] })
+        }
+      }
+    }),
+  )
 
-  const events = cache!.events
+  // Merge and filter to range across all configured calendars.
   const startMs = start.getTime()
   const endMs = end.getTime()
-  return events
-    .filter((e) => e.end.getTime() > startMs && e.start.getTime() < endMs)
-    .sort((a, b) => a.start.getTime() - b.start.getTime())
+  const merged: CalEvent[] = []
+  for (const source of sources) {
+    const entry = cache.get(source.url)
+    if (!entry) continue
+    for (const e of entry.events) {
+      if (e.end.getTime() > startMs && e.start.getTime() < endMs) {
+        merged.push(e)
+      }
+    }
+  }
+  merged.sort((a, b) => a.start.getTime() - b.start.getTime())
+  return merged
 }
 
-// Explicitly bust the cache — used after the user pastes a new URL or
-// deliberately wants a live fetch.
+// Explicitly bust the cache — used after the user saves a new URL list.
 export function invalidateICalCache(): void {
-  cache = null
+  cache.clear()
 }
 
-async function fetchAndParse(url: string): Promise<CalEvent[]> {
-  const proxy = `/api/ical?url=${encodeURIComponent(url)}`
+async function fetchAndParse(source: ICalSource): Promise<CalEvent[]> {
+  const proxy = `/api/ical?url=${encodeURIComponent(source.url)}`
   const res = await fetch(proxy)
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(`iCal proxy failed (${res.status}): ${body}`)
   }
   const text = await res.text()
-  return parseIcs(text)
+  return parseIcs(text, source.label)
 }
 
 // Parse an .ics blob into CalEvent[]. Recurring events (identified by
@@ -99,33 +164,35 @@ async function fetchAndParse(url: string): Promise<CalEvent[]> {
 // than only on its DTSTART.
 //
 // Expansion window: 30 days back → 90 days forward from "now". That's
-// well beyond Home's 7-day preview and gives insights and any past-look
-// features headroom without generating tens of thousands of rows for
-// far-future daily standups.
-function parseIcs(ics: string): CalEvent[] {
-  // ical.js's parse returns a jCal array-of-arrays representation; the
-  // Component wrapper lets us walk it in a more readable way.
+// well beyond Home's 7-day preview and gives insights headroom without
+// generating tens of thousands of rows for far-future daily standups.
+function parseIcs(ics: string, label?: string): CalEvent[] {
   const jcal = ICAL.parse(ics)
   const root = new ICAL.Component(jcal)
   const rawEvents = root.getAllSubcomponents('vevent')
 
-  const windowStart = new Date(Date.now() - 30 * 86_400_000)
-  const windowEnd = new Date(Date.now() + 90 * 86_400_000)
-  const winStartMs = windowStart.getTime()
-  const winEndMs = windowEnd.getTime()
+  const winStartMs = Date.now() - 30 * 86_400_000
+  const winEndMs = Date.now() + 90 * 86_400_000
 
   const out: CalEvent[] = []
   for (const raw of rawEvents) {
     const evt = new ICAL.Event(raw)
     if (raw.getFirstPropertyValue('status') === 'CANCELLED') continue
 
-    const summary = String(evt.summary ?? '(no title)')
+    const rawTitle = String(evt.summary ?? '(no title)')
+    // Prefix the title with the calendar label so events from different
+    // calendars are visually distinguishable on Home. If no label was
+    // set, skip the prefix so nothing looks off.
+    const summary = label ? `[${label}] ${rawTitle}` : rawTitle
     const location = raw.getFirstPropertyValue('location')
     const description = raw.getFirstPropertyValue('description')
     const uid = String(evt.uid ?? cryptoIshId())
+    // Namespace the id by URL/label so events from different calendars
+    // with the same UID (unlikely but possible) don't collide as React
+    // keys downstream.
+    const sourceKey = label ?? 'src'
 
     if (evt.isRecurring()) {
-      // Expand recurring master into the window.
       const iter = evt.iterator()
       let next: ICAL.Time | null
       let safetyCounter = 0
@@ -133,12 +200,11 @@ function parseIcs(ics: string): CalEvent[] {
         safetyCounter++
         const occStart = next.toJSDate()
         if (occStart.getTime() > winEndMs) break
-        // Skip anything before our window's start.
         if (occStart.getTime() < winStartMs) continue
 
         const details = evt.getOccurrenceDetails(next)
         out.push({
-          id: `${uid}::${occStart.toISOString()}`,
+          id: `${sourceKey}::${uid}::${occStart.toISOString()}`,
           title: summary,
           start: details.startDate.toJSDate(),
           end: details.endDate.toJSDate(),
@@ -149,17 +215,13 @@ function parseIcs(ics: string): CalEvent[] {
         })
       }
     } else {
-      // Non-recurring event — take DTSTART/DTEND as-is.
       const startDate = evt.startDate?.toJSDate()
       const endDate = evt.endDate?.toJSDate()
       if (!startDate || !endDate) continue
-      // Only skip if the whole event finishes before our window opens or
-      // starts after it closes — otherwise let the per-call filter in
-      // listICalEventsForRange narrow it down.
       if (endDate.getTime() < winStartMs) continue
       if (startDate.getTime() > winEndMs) continue
       out.push({
-        id: uid,
+        id: `${sourceKey}::${uid}`,
         title: summary,
         start: startDate,
         end: endDate,
@@ -173,8 +235,6 @@ function parseIcs(ics: string): CalEvent[] {
   return out
 }
 
-// Fallback id when a VEVENT has no UID (shouldn't happen with Google
-// but a defensive random beats a collision).
 function cryptoIshId(): string {
   const arr = new Uint8Array(8)
   crypto.getRandomValues(arr)

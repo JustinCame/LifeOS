@@ -20,7 +20,7 @@ import InsightsHistorySheet from "../components/InsightsHistorySheet";
 import ICalSetupSheet from "../components/ICalSetupSheet";
 import ProgramEditorScreen from "./ProgramEditorScreen";
 import { markSeen } from "../lib/insights/engine";
-import { ICAL_URL_SETTING } from "../lib/ical";
+import { getICalSources } from "../lib/ical";
 import type { InsightSeverity } from "../db/types";
 import {
   disableNotifications,
@@ -45,10 +45,14 @@ export default function Home({
   const [programEditorOpen, setProgramEditorOpen] = useState(false);
   const [insightHistoryOpen, setInsightHistoryOpen] = useState(false);
   const [icalSetupOpen, setIcalSetupOpen] = useState(false);
-  const icalUrlSetting = useLiveQuery(() =>
-    db.settings.get(ICAL_URL_SETTING),
-  );
-  const icalConfigured = !!(icalUrlSetting?.value as string | undefined);
+  // Live-count of configured calendars. Re-reads whenever either the
+  // new multi-URL setting or the legacy single-URL setting changes so
+  // the Home row label stays in sync.
+  const icalCount =
+    useLiveQuery(async () => {
+      const sources = await getICalSources();
+      return sources.length;
+    }) ?? 0;
   // Total insights ever generated (minus the Phase 1 demo). Powers the
   // "Insight history · N" row label so the user sees whether there's
   // anything worth opening it for.
@@ -358,7 +362,7 @@ export default function Home({
             >
               <span
                 className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-full ${
-                  icalConfigured
+                  icalCount > 0
                     ? "bg-accent-soft text-accent-fg"
                     : "bg-surface-2 text-subtle"
                 }`}
@@ -367,11 +371,11 @@ export default function Home({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="text-base leading-tight text-fg">
-                  Calendar link
+                  Calendars
                 </div>
                 <div className="mt-0.5 font-mono text-[11px] text-muted">
-                  {icalConfigured
-                    ? "iCal URL configured — reads without sign-in"
+                  {icalCount > 0
+                    ? `${icalCount} iCal ${icalCount === 1 ? "URL" : "URLs"} configured — tap to manage`
                     : "Add a Google iCal URL to avoid the 1-hour sign-out"}
                 </div>
               </div>

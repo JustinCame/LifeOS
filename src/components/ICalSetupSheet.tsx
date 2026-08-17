@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, deleteSetting, setSetting } from "../db";
-import { ICAL_URL_SETTING, invalidateICalCache } from "../lib/ical";
+import { db, setSetting } from "../db";
+import {
+  ICAL_URLS_SETTING,
+  MAX_ICAL_SOURCES,
+  clearLegacyICalSetting,
+  getICalSources,
+  invalidateICalCache,
+  type ICalSource,
+} from "../lib/ical";
 
 const TRANSITION_MS = 280;
 
@@ -9,10 +16,10 @@ interface Props {
   onClose: () => void;
 }
 
-// Bottom sheet for setting up (or clearing) the Google Calendar iCal
-// URL — the OAuth-free way of reading the calendar. Solves the "iOS
-// keeps signing me out" problem by trading real-time freshness for a
-// URL that never expires.
+// Bottom sheet for adding, editing, and removing iCal calendar URLs.
+// Supports up to MAX_ICAL_SOURCES calendars — Justin uses a personal
+// one, a college schedule (SUNY), and a US holiday feed, and wanted
+// room for more. Each row is an optional label + a URL.
 export default function ICalSetupSheet({ onClose }: Props) {
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -25,56 +32,106 @@ export default function ICalSetupSheet({ onClose }: Props) {
     window.setTimeout(onClose, TRANSITION_MS);
   };
 
-  const existingSetting = useLiveQuery(() =>
-    db.settings.get(ICAL_URL_SETTING),
-  );
-  const existingUrl = (existingSetting?.value as string | undefined) ?? "";
-
-  const [draft, setDraft] = useState("");
+  // Draft rows in local state — auto-hydrated from Dexie once on mount.
+  // React key is a synthetic local id so removing / adding rows doesn't
+  // cause input focus to jump around during edits.
+  const [rows, setRows] = useState<
+    Array<{ id: number; label: string; url: string }>
+  >([]);
+  const [hydrated, setHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [instructionsOpen, setInstructionsOpen] = useState(!existingUrl);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
+  // Nudge the sheet to reload state whenever the stored setting changes
+  // (e.g. someone else's tab wrote to it). Simple useLiveQuery, ignored
+  // once hydrated so it doesn't clobber mid-edit state.
+  useLiveQuery(() => db.settings.get(ICAL_URLS_SETTING));
 
-  // Hydrate the draft once we know if a URL is already saved.
   useEffect(() => {
-    if (existingSetting !== undefined) {
-      setDraft(existingUrl);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingSetting !== undefined]);
+    if (hydrated) return;
+    getICalSources().then((sources) => {
+      const seeded =
+        sources.length > 0
+          ? sources.map((s, i) => ({
+              id: i,
+              label: s.label ?? "",
+              url: s.url,
+            }))
+          : [{ id: 0, label: "", url: "" }];
+      setRows(seeded);
+      // Instructions expanded only if we have no configured URLs yet.
+      setInstructionsOpen(sources.length === 0);
+      setHydrated(true);
+    });
+  }, [hydrated]);
 
-  const looksLikeGoogleICal = (url: string): boolean => {
-    return /^https:\/\/calendar\.google\.com\/calendar\/ical\/[^/]+\/(?:private-[a-z0-9]+|public)\/(?:basic|full)\.ics$/i.test(
+  const looksLikeGoogleICal = (url: string): boolean =>
+    /^https:\/\/calendar\.google\.com\/calendar\/ical\/[^/]+\/(?:private-[a-z0-9]+|public)\/(?:basic|full)\.ics$/i.test(
       url.trim(),
     );
+
+  const updateRow = (id: number, patch: Partial<{ label: string; url: string }>) => {
+    setRows((cur) =>
+      cur.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    );
+    setError(null);
+  };
+
+  const addRow = () => {
+    if (rows.length >= MAX_ICAL_SOURCES) return;
+    setRows((cur) => [
+      ...cur,
+      { id: Date.now(), label: "", url: "" },
+    ]);
+    setError(null);
+  };
+
+  const removeRow = (id: number) => {
+    setRows((cur) => cur.filter((r) => r.id !== id));
+    setError(null);
   };
 
   const onSave = async () => {
-    const v = draft.trim();
-    if (!v) {
-      setError("Paste your iCal URL first.");
-      return;
+    // Drop entirely empty rows silently — a user can add an extra row
+    // and never fill it in without triggering a validation error.
+    const nonEmpty = rows.filter(
+      (r) => r.url.trim().length > 0 || r.label.trim().length > 0,
+    );
+
+    // Validate URLs.
+    for (const r of nonEmpty) {
+      const url = r.url.trim();
+      if (!url) {
+        setError(
+          r.label
+            ? `The "${r.label}" row needs a URL or should be removed.`
+            : "One of your rows has a label but no URL.",
+        );
+        return;
+      }
+      if (!looksLikeGoogleICal(url)) {
+        setError(
+          r.label
+            ? `"${r.label}" doesn't look like a Google iCal URL.`
+            : "One of your URLs doesn't look like a Google iCal URL.",
+        );
+        return;
+      }
     }
-    if (!looksLikeGoogleICal(v)) {
-      setError(
-        "That doesn't look like a Google Calendar iCal URL. Copy it from Calendar settings (see below).",
-      );
-      return;
-    }
+
     setError(null);
     setSaving(true);
-    await setSetting(ICAL_URL_SETTING, v);
+    const payload: ICalSource[] = nonEmpty.map((r) => ({
+      url: r.url.trim(),
+      label: r.label.trim() || undefined,
+    }));
+    await setSetting(ICAL_URLS_SETTING, payload);
+    // Best-effort cleanup of the legacy single-URL setting so we don't
+    // have two potentially-conflicting sources of truth on device.
+    await clearLegacyICalSetting();
     invalidateICalCache();
     setSaving(false);
     close();
-  };
-
-  const onClear = async () => {
-    if (!existingUrl) return;
-    if (!confirm("Remove the iCal URL? Calendar will need to fall back to Google sign-in.")) return;
-    await deleteSetting(ICAL_URL_SETTING);
-    invalidateICalCache();
-    setDraft("");
   };
 
   return (
@@ -86,7 +143,7 @@ export default function ICalSetupSheet({ onClose }: Props) {
         }`}
       />
       <div
-        className={`absolute inset-x-0 bottom-0 z-40 flex max-h-[90%] flex-col rounded-t-[28px] border-t border-border bg-bg shadow-[0_-20px_40px_rgb(0_0_0/0.32)] transition-transform duration-300 ${
+        className={`absolute inset-x-0 bottom-0 z-40 flex max-h-[92%] flex-col rounded-t-[28px] border-t border-border bg-bg shadow-[0_-20px_40px_rgb(0_0_0/0.32)] transition-transform duration-300 ${
           shown ? "translate-y-0" : "translate-y-full"
         }`}
         style={{
@@ -102,73 +159,86 @@ export default function ICalSetupSheet({ onClose }: Props) {
             Done
           </button>
           <span className="text-sm font-medium uppercase tracking-[0.04em] text-muted">
-            Calendar
+            Calendars
           </span>
-          <span className="w-12" />
+          <span className="w-12 text-right font-mono text-[11px] text-subtle">
+            {rows.filter((r) => r.url.trim()).length}/{MAX_ICAL_SOURCES}
+          </span>
         </div>
 
         <div className="flex-1 overflow-y-auto px-[18px] pb-8 [&::-webkit-scrollbar]:hidden">
           <p className="mb-3 text-sm leading-relaxed text-fg">
-            Read your calendar without signing in. Google gives every
-            calendar a private iCal URL that lets any app fetch its
-            events — no login required, no expiration.
-          </p>
-          <p className="mb-4 text-xs leading-relaxed text-muted">
-            Tradeoffs: read-only (can't create events from the app),
-            events lag by up to about an hour behind Google's live
-            state. The URL is a bearer token — anyone with it can read
-            this calendar, so treat it like a password. If it ever
-            leaks, rotate it by clicking "Reset" next to the URL on
-            Google's side.
+            Add up to {MAX_ICAL_SOURCES} Google Calendar iCal feeds —
+            personal, school, holidays, whatever. No sign-in, no expiry.
+            Labels are optional and show up as a prefix on events so you
+            can tell them apart.
           </p>
 
-          {/* Input + save row */}
-          <label className="block">
-            <span className="mb-1 block font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
-              Secret iCal URL
-            </span>
-            <textarea
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setError(null);
-              }}
-              placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
-              rows={3}
-              className="block w-full min-w-0 resize-none rounded-[8px] border border-border bg-surface px-2.5 py-2 font-mono text-[12px] outline-none placeholder:text-subtle"
-            />
-          </label>
+          {/* Row list */}
+          <div className="space-y-3">
+            {rows.map((row, i) => (
+              <div
+                key={row.id}
+                className="rounded-[14px] border border-border bg-surface p-3"
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+                    Calendar {i + 1}
+                  </span>
+                  {rows.length > 1 && (
+                    <button
+                      onClick={() => removeRow(row.id)}
+                      className="rounded-[6px] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.04em] text-muted hover:bg-surface-2 hover:text-fg"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <input
+                  value={row.label}
+                  onChange={(e) => updateRow(row.id, { label: e.target.value })}
+                  placeholder="Label (optional) — e.g. Personal"
+                  className="mb-2 block w-full min-w-0 rounded-[8px] border border-border bg-bg px-2.5 py-2 text-sm outline-none placeholder:text-subtle"
+                />
+                <textarea
+                  value={row.url}
+                  onChange={(e) => updateRow(row.id, { url: e.target.value })}
+                  placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
+                  rows={3}
+                  className="block w-full min-w-0 resize-none rounded-[8px] border border-border bg-bg px-2.5 py-2 font-mono text-[12px] outline-none placeholder:text-subtle"
+                />
+              </div>
+            ))}
+          </div>
+
+          {rows.length < MAX_ICAL_SOURCES && (
+            <button
+              onClick={addRow}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-[12px] border border-dashed border-border bg-surface px-3 py-2.5 text-sm text-subtle hover:border-border-strong hover:text-fg"
+            >
+              + Add another calendar
+            </button>
+          )}
 
           {error && (
-            <div className="mt-2 rounded-[8px] border border-accent bg-surface px-3 py-2 text-[12px] text-accent-fg">
+            <div className="mt-3 rounded-[8px] border border-accent bg-surface px-3 py-2 text-[12px] text-accent-fg">
               {error}
             </div>
           )}
 
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              onClick={onSave}
-              disabled={saving}
-              className={`flex-1 rounded-[10px] px-3 py-2 text-sm font-medium transition ${
-                saving
-                  ? "bg-surface-2 text-subtle"
-                  : "bg-accent text-[#0a160d]"
-              }`}
-            >
-              {saving ? "Saving…" : existingUrl ? "Update" : "Save"}
-            </button>
-            {existingUrl && (
-              <button
-                onClick={onClear}
-                className="rounded-[10px] border border-border bg-surface px-3 py-2 text-sm font-medium text-muted hover:text-fg"
-              >
-                Remove
-              </button>
-            )}
-          </div>
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className={`mt-4 w-full rounded-[10px] px-3 py-2.5 text-sm font-medium transition ${
+              saving
+                ? "bg-surface-2 text-subtle"
+                : "bg-accent text-[#0a160d]"
+            }`}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
 
-          {/* Instructions — collapsed after setup so the sheet stays tidy on
-              returns. */}
+          {/* Instructions — collapsible. Auto-open only on first setup. */}
           <button
             onClick={() => setInstructionsOpen((v) => !v)}
             className="mt-6 flex w-full items-center justify-between rounded-[10px] border border-border bg-surface px-3 py-2 text-left text-sm text-fg hover:border-border-strong"
@@ -185,36 +255,35 @@ export default function ICalSetupSheet({ onClose }: Props) {
           {instructionsOpen && (
             <ol className="mt-3 space-y-2 rounded-[12px] border border-border bg-surface p-3.5 text-[13px] leading-relaxed text-fg">
               <li>
-                <span className="font-medium">Open Google Calendar on desktop</span>
+                <span className="font-medium">
+                  Open Google Calendar on desktop
+                </span>
                 {" — "}
                 <span className="text-muted">
-                  calendar.google.com (the setting lives in the web UI,
-                  not the mobile app).
+                  calendar.google.com. The URL setting isn't in the
+                  mobile Calendar app.
                 </span>
               </li>
               <li>
-                <span className="font-medium">
-                  Hover the calendar name on the left → "⋮" → Settings and
-                  sharing
-                </span>
-                {"."}
+                Hover the calendar name on the left → "⋮" →{" "}
+                <span className="font-medium">Settings and sharing</span>.
               </li>
               <li>
-                <span className="font-medium">
-                  Scroll to "Integrate calendar" → find "Secret address in
-                  iCal format"
-                </span>
-                {"."}
+                Scroll to{" "}
+                <span className="font-medium">Integrate calendar</span>{" "}
+                → find "Secret address in iCal format" (private calendars)
+                or "Public address in iCal format" (holidays, subscribed
+                calendars).
               </li>
               <li>
-                <span className="font-medium">
-                  Copy the URL (ends with .ics)
-                </span>
-                {" and paste it above."}
+                Copy the URL (ends with{" "}
+                <span className="font-mono">.ics</span>) and paste it
+                above.
               </li>
               <li className="text-muted">
-                If it ever leaks, click "Reset" next to that URL on
-                Google's side; the old one dies immediately.
+                Repeat per calendar. If a secret URL leaks, click "Reset"
+                next to it in Google Calendar — the old one dies
+                immediately.
               </li>
             </ol>
           )}
