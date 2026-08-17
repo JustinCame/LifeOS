@@ -17,6 +17,7 @@ import SwapSheet from "./SwapSheet";
 import RestTimer from "./RestTimer";
 import ExerciseDemoScreen from "../screens/ExerciseDemoScreen";
 import { runTriggers } from "../lib/insights/engine";
+import { useTick } from "../lib/useTick";
 
 interface Props {
   workoutId: number;
@@ -49,16 +50,14 @@ export default function WorkoutSession({ workoutId, onClose }: Props) {
     exerciseName: string;
     nextLine?: string;
   } | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-
-  // Live wall-clock tick since startedAt. Stops when workout is completed.
-  useEffect(() => {
-    if (!workout || workout.completedAt) return;
-    const tick = () => setElapsed(Math.floor((Date.now() - workout.startedAt) / 1000));
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [workout?.startedAt, workout?.completedAt]);
+  // Live wall-clock tick since startedAt. Derived directly from Date.now()
+  // via useTick so iOS Safari backgrounding the tab doesn't freeze the
+  // display — comes back correct the instant the tab regains visibility.
+  const now = useTick(1000);
+  const elapsed =
+    workout && !workout.completedAt
+      ? Math.floor((now - workout.startedAt) / 1000)
+      : 0;
 
   const totals = useMemo(() => {
     if (!workout) return { total: 0, done: 0, volume: 0, avgRpe: null as number | null };

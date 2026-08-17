@@ -10,6 +10,7 @@ import {
   todaysCardio,
   todaysLift,
 } from "../lib/userProgram";
+import { useTick } from "../lib/useTick";
 
 interface Props {
   hasActiveWorkout: boolean;
@@ -25,12 +26,25 @@ const fmt = (sec: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
+// Timestamp-based cardio state. Derived from wall-clock via useTick so the
+// countdown stays accurate across iOS Safari backgrounding — a decrementing
+// counter would freeze the moment the tab loses focus and stay frozen on
+// return until the next scheduled tick, which is jarring during a workout.
+//
+// Field roles:
+//   sessionEndsAt  — when the whole session should end. `null` means
+//                    frozen (LISS paused, or HIIT between intervals).
+//   intervalEndsAt — HIIT only: when the current 90-second interval ends.
+//                    `null` between intervals or on LISS.
+//   pausedLeft     — seconds remaining in session while frozen. Captured
+//                    the moment we pause / end an interval; used to
+//                    reconstruct sessionEndsAt on resume.
 interface RunState {
   total: number;
-  left: number;
-  iv: number;          // seconds left in current HIIT interval; 0 = between-intervals
-  paused: boolean;
   startedAt: number;
+  sessionEndsAt: number | null;
+  intervalEndsAt: number | null;
+  pausedLeft: number | null;
 }
 
 export default function StartDial({
@@ -73,25 +87,48 @@ export default function StartDial({
   const rest = !isCardio && !lift;
   const swapped = liftIdx !== null;
 
-  const ticking = run !== null && (isHiit ? run.iv > 0 : !run.paused);
-  useEffect(() => {
-    if (!ticking) return;
-    const id = setInterval(() => {
-      setRun((r) => {
-        if (!r) return r;
-        if (r.left <= 1) return { ...r, left: 0, iv: 0 };
-        const iv = isHiit ? Math.max(0, r.iv - 1) : r.iv;
-        return { ...r, left: r.left - 1, iv };
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [ticking, isHiit]);
+  // Wall-clock tick. 500ms is smoother than 1s for the ring animation
+  // without meaningful battery cost while the tab is visible; useTick
+  // suspends automatically when the tab is hidden.
+  const now = useTick(500);
 
-  // Auto-finalize a cardio session once its total hits zero.
+  // Derived countdowns. Frozen state uses pausedLeft; running state
+  // derives from the endsAt timestamp.
+  const derivedLeft: number = run
+    ? run.sessionEndsAt !== null
+      ? Math.max(0, Math.ceil((run.sessionEndsAt - now) / 1000))
+      : (run.pausedLeft ?? 0)
+    : 0;
+  const derivedIv: number =
+    run && run.intervalEndsAt !== null
+      ? Math.max(0, Math.ceil((run.intervalEndsAt - now) / 1000))
+      : 0;
+
+  // Auto-end a HIIT interval when it hits 0. Freeze session countdown and
+  // wait for the user to tap "Next 90s". Session time not consumed while
+  // between intervals — matches the previous decrementing model.
   useEffect(() => {
     if (!run) return;
-    if (run.left > 0) return;
-    // Finalize.
+    if (!isHiit) return;
+    if (run.intervalEndsAt === null) return;
+    if (derivedIv > 0) return;
+    const sessionRemaining =
+      run.sessionEndsAt !== null
+        ? Math.max(0, Math.ceil((run.sessionEndsAt - now) / 1000))
+        : (run.pausedLeft ?? 0);
+    setRun({
+      ...run,
+      sessionEndsAt: null,
+      intervalEndsAt: null,
+      pausedLeft: sessionRemaining,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derivedIv, isHiit]);
+
+  // Auto-finalize when the total session runs out.
+  useEffect(() => {
+    if (!run) return;
+    if (derivedLeft > 0) return;
     const kind: CardioKind = cardio.key;
     addCardioSession({
       kind,
@@ -100,15 +137,18 @@ export default function StartDial({
     }).catch(() => {});
     setRun(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run?.left]);
+  }, [derivedLeft]);
 
   const R = 86;
   const C = 2 * Math.PI * R;
   const running = isCardio && run !== null;
-  const inInterval = running && isHiit && run.iv > 0;
+  const inInterval = running && isHiit && derivedIv > 0;
+  // LISS-only concept: paused = session countdown is frozen and it's not
+  // a HIIT between-intervals state.
+  const paused = running && !isHiit && run!.sessionEndsAt === null;
 
   const title = running
-    ? fmt(run.left)
+    ? fmt(derivedLeft)
     : isCardio
       ? cardio.name
       : rest
@@ -120,7 +160,7 @@ export default function StartDial({
       ? inInterval
         ? "Interval"
         : "Rest — tap for next"
-      : run!.paused
+      : paused
         ? "Paused"
         : "In progress"
     : isCardio
@@ -132,7 +172,7 @@ export default function StartDial({
   const meta = running
     ? isHiit
       ? inInterval
-        ? `${fmt(run!.iv)} in this interval`
+        ? `${fmt(derivedIv)} in this interval`
         : `${cardio.min} min total`
       : `${cardio.name} · ${cardio.min} min`
     : isCardio
@@ -143,8 +183,8 @@ export default function StartDial({
 
   const footer = running
     ? isHiit
-      ? `${HIIT_INTERVAL}s intervals · ${Math.ceil(run!.left / HIIT_INTERVAL)} left`
-      : run!.paused
+      ? `${HIIT_INTERVAL}s intervals · ${Math.ceil(derivedLeft / HIIT_INTERVAL)} left`
+      : paused
         ? "paused"
         : "tap the circle to pause"
     : isCardio
@@ -160,7 +200,7 @@ export default function StartDial({
       ? inInterval
         ? "End interval"
         : "Next 90s"
-      : run!.paused
+      : paused
         ? "Resume"
         : "Pause"
     : isCardio
@@ -174,8 +214,10 @@ export default function StartDial({
   // Ring progress: cardio countdown while running, else weekly progress.
   const ringPct = running
     ? isHiit
-      ? (run!.iv || 0) / HIIT_INTERVAL
-      : run!.left / run!.total
+      ? derivedIv / HIIT_INTERVAL
+      : run!.total > 0
+        ? derivedLeft / run!.total
+        : 0
     : isCardio
       ? Math.min(1, weeklyCardioCount / 3)
       : Math.min(1, weeklyLiftProgress);
@@ -186,22 +228,60 @@ export default function StartDial({
       return;
     }
     if (!run) {
+      // Initial start. Set both endsAts from now. For LISS, no interval.
+      const nowMs = Date.now();
       const total = cardio.min * 60;
       setRun({
         total,
-        left: total,
-        iv: isHiit ? HIIT_INTERVAL : 0,
-        paused: false,
-        startedAt: Date.now(),
+        startedAt: nowMs,
+        sessionEndsAt: nowMs + total * 1000,
+        intervalEndsAt: isHiit ? nowMs + HIIT_INTERVAL * 1000 : null,
+        pausedLeft: null,
       });
       return;
     }
     if (isHiit) {
-      // Between intervals: start the next; during interval: end it early.
-      const nextIv = run.iv > 0 ? 0 : Math.min(HIIT_INTERVAL, run.left);
-      setRun({ ...run, iv: nextIv });
+      const nowMs = Date.now();
+      if (derivedIv > 0) {
+        // End interval early — freeze the session countdown at the current
+        // remaining, wait for the user to tap for the next interval.
+        setRun({
+          ...run,
+          sessionEndsAt: null,
+          intervalEndsAt: null,
+          pausedLeft: derivedLeft,
+        });
+      } else {
+        // Between intervals — start the next. Reconstruct sessionEndsAt
+        // from the frozen pausedLeft; cap interval length to avoid the
+        // interval outlasting the session on the final rep.
+        const remaining = run.pausedLeft ?? 0;
+        const intervalLen = Math.min(HIIT_INTERVAL, remaining);
+        setRun({
+          ...run,
+          sessionEndsAt: nowMs + remaining * 1000,
+          intervalEndsAt: nowMs + intervalLen * 1000,
+          pausedLeft: null,
+        });
+      }
     } else {
-      setRun({ ...run, paused: !run.paused });
+      // LISS pause / resume.
+      const nowMs = Date.now();
+      const paused = run.sessionEndsAt === null;
+      if (paused) {
+        const remaining = run.pausedLeft ?? 0;
+        setRun({
+          ...run,
+          sessionEndsAt: nowMs + remaining * 1000,
+          pausedLeft: null,
+        });
+      } else {
+        setRun({
+          ...run,
+          sessionEndsAt: null,
+          pausedLeft: derivedLeft,
+        });
+      }
     }
   };
 

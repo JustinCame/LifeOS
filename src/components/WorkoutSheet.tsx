@@ -28,6 +28,7 @@ import {
 } from "../lib/fitness";
 import { generateText } from "../lib/anthropic";
 import { fireLocalNotification } from "../lib/notifications";
+import { useTick } from "../lib/useTick";
 import ExercisePickerSheet from "./ExercisePickerSheet";
 import ExerciseHistorySheet from "./ExerciseHistorySheet";
 
@@ -97,27 +98,25 @@ export default function WorkoutSheet({ workoutId, onClose, onSwitchWorkout }: Pr
   // All workouts (for PR comparisons inside an active workout)
   const allWorkouts = useLiveQuery(() => db.workouts.toArray()) ?? [];
 
-  // Rest timer state
+  // Rest timer state — restEndsAt is the wall-clock deadline; tickNow
+  // drives the visible countdown via useTick, which also refreshes on
+  // visibilitychange so backgrounding the app on iOS doesn't freeze the
+  // display.
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
-  const [tickNow, setTickNow] = useState(Date.now());
+  const tickNow = useTick(250);
 
+  // Fire vibration + notification when the timer transitions to done.
+  // Guard: only run when restEndsAt is still set — setting it to null
+  // inside the effect prevents this from re-firing on subsequent ticks.
   useEffect(() => {
     if (restEndsAt === null) return;
-    const tick = () => {
-      const remaining = restEndsAt - Date.now();
-      if (remaining <= 0) {
-        setRestEndsAt(null);
-        if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-          try { navigator.vibrate?.(200); } catch { /* noop */ }
-        }
-        fireLocalNotification("Rest done", "Ready for your next set.");
-      } else {
-        setTickNow(Date.now());
-      }
-    };
-    const interval = window.setInterval(tick, 250);
-    return () => window.clearInterval(interval);
-  }, [restEndsAt]);
+    if (restEndsAt - tickNow > 0) return;
+    setRestEndsAt(null);
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      try { navigator.vibrate?.(200); } catch { /* noop */ }
+    }
+    fireLocalNotification("Rest done", "Ready for your next set.");
+  }, [restEndsAt, tickNow]);
 
   // Reset rest timer when workout switches.
   useEffect(() => {

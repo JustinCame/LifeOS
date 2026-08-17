@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTick } from "../lib/useTick";
 
 interface Props {
   // Prescribed rest for the just-completed set, in seconds.
@@ -11,24 +12,29 @@ interface Props {
 // Full-screen countdown that opens after a set is logged. Auto-dismisses
 // when the timer reaches 0. -30s / +30s adjust the remaining time;
 // Skip rest closes immediately.
+//
+// Countdown is derived from an `endsAt` wall-clock timestamp rather than a
+// decrementing counter, so it stays accurate across app backgrounding on
+// iOS Safari. useTick forces a re-render every 500ms AND on visibilitychange
+// so the display catches up the instant you return to the app.
 export default function RestTimer({
   initialSeconds,
   exerciseName,
   nextLine,
   onClose,
 }: Props) {
-  const [left, setLeft] = useState(initialSeconds);
+  const [endsAt, setEndsAt] = useState<number>(
+    () => Date.now() + initialSeconds * 1000,
+  );
   const [total, setTotal] = useState(initialSeconds);
+  const now = useTick(500);
 
+  const left = Math.max(0, Math.ceil((endsAt - now) / 1000));
+
+  // Auto-dismiss when the timer runs out. Guarded with a useEffect so we
+  // don't call onClose during render.
   useEffect(() => {
-    if (left <= 0) {
-      onClose();
-      return;
-    }
-    const id = window.setInterval(() => {
-      setLeft((v) => Math.max(0, v - 1));
-    }, 1000);
-    return () => window.clearInterval(id);
+    if (left <= 0) onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left]);
 
@@ -50,9 +56,12 @@ export default function RestTimer({
   const mm = String(Math.floor(left / 60)).padStart(1, "0");
   const ss = String(left % 60).padStart(2, "0");
 
-  const adjust = (delta: number) => {
-    setLeft((v) => Math.max(1, v + delta));
-    setTotal((t) => Math.max(1, t + delta));
+  // -30s / +30s: shift the end timestamp AND the total by the same amount.
+  // Floor endsAt at "now + 1s" so pressing -30 near the end doesn't fire
+  // onClose mid-adjust with a negative bounce.
+  const adjust = (deltaSec: number) => {
+    setEndsAt((prev) => Math.max(Date.now() + 1000, prev + deltaSec * 1000));
+    setTotal((prev) => Math.max(1, prev + deltaSec));
   };
 
   return (
